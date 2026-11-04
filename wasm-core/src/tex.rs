@@ -1,7 +1,10 @@
 use crate::data::*;
 use alloc::vec::Vec;
 
+mod document;
 mod macros;
+mod pdf;
+use document::{Laid, Word};
 use macros::Def;
 
 type R<T> = Result<T, ()>;
@@ -317,6 +320,12 @@ pub struct Engine {
     colx: Vec<i32>,
     mids: Vec<Mid>,
     pub(crate) out: Vec<u8>,
+    doc: Laid,
+    laid: Laid,
+    scratch: pdf::Scratch,
+    words: Vec<Word>,
+    line_costs: Vec<(i64, u32)>,
+    line_ends: Vec<u32>,
     pub(crate) order: Vec<u32>,
     pub(crate) counts: Vec<u32>,
     input: Vec<u8>,
@@ -495,6 +504,12 @@ impl Engine {
             colx: Vec::with_capacity(32),
             mids: Vec::with_capacity(8),
             out: Vec::with_capacity(1 << 16),
+            doc: Laid::default(),
+            laid: Laid::default(),
+            scratch: pdf::Scratch::default(),
+            words: Vec::new(),
+            line_costs: Vec::new(),
+            line_ends: Vec::new(),
             order: Vec::with_capacity(4096),
             counts: Vec::with_capacity(16),
             input: Vec::with_capacity(4096),
@@ -528,7 +543,8 @@ impl Engine {
         self.err_pos
     }
 
-    pub fn render(&mut self, len: usize, display: bool) -> i32 {
+    #[inline(always)]
+    fn reset(&mut self, len: usize) {
         unsafe { *self.input.as_mut_ptr().add(len) = 0 };
         self.p = self.input.as_ptr();
         self.pos = 0;
@@ -553,6 +569,10 @@ impl Engine {
         self.user_src = true;
         self.call_pos = 0;
         self.reset_macros();
+    }
+
+    pub fn render(&mut self, len: usize, display: bool) -> i32 {
+        self.reset(len);
         let style = if display { ST_D } else { ST_T };
         let ctx = Ctx { style, font: 0, size: UNIT, scale: UNIT, color: 0, grp: 0 };
         match self.list(ctx, S_EOF, NONE) {
@@ -836,10 +856,9 @@ impl Engine {
         Ok(())
     }
 
-    fn list(&mut self, ctx: Ctx, stop: u8, init: u8) -> R<Bx> {
-        self.enter()?;
-        let s = self.end();
-        let mut r = Run {
+    #[inline(always)]
+    fn new_run(&self, s: u32, init: u8, ctx: Ctx) -> Run {
+        Run {
             x: 0,
             h: i32::MIN / 2,
             d: i32::MIN / 2,
@@ -861,7 +880,13 @@ impl Engine {
             start: self.pos,
             first: s,
             ctx,
-        };
+        }
+    }
+
+    fn list(&mut self, ctx: Ctx, stop: u8, init: u8) -> R<Bx> {
+        self.enter()?;
+        let s = self.end();
+        let mut r = self.new_run(s, init, ctx);
         let mut c = ctx;
         let done = self.run(&mut r, &mut c, stop)?;
         self.depth -= 1;

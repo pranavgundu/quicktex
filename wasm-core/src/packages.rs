@@ -101,6 +101,9 @@ pub static PACKAGES: &[Package] = &[
         "amsmath",
         &[
             ("tag", "m", r"\qquad(\text{#1})"),
+            ("label", "m", ""),
+            ("nonumber", "", ""),
+            ("notag", "", ""),
             ("dddot", "m", r"\overset{...}{#1}"),
             ("ddddot", "m", r"\overset{....}{#1}"),
             ("iiiint", "", r"\int\!\!\!\int\!\!\!\int\!\!\!\int"),

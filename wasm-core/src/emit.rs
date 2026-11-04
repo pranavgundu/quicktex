@@ -166,6 +166,15 @@ unsafe fn brace(p: &mut *mut u8, it: &Item) {
     }
 }
 
+pub(crate) fn brace_path(it: &Item, out: &mut [u8; 512]) -> usize {
+    unsafe {
+        let base = out.as_mut_ptr();
+        let mut q = base;
+        brace(&mut q, it);
+        q.offset_from(base) as usize
+    }
+}
+
 impl Engine {
     pub(crate) fn emit(&mut self, root: Bx) {
         let n = self.items.len();

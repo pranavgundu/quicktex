@@ -114,6 +114,21 @@ extern "C" fn qt_render(len: usize, display: u32) -> i32 {
 }
 
 #[unsafe(no_mangle)]
+extern "C" fn qt_document(len: usize) -> i32 {
+    engine().render_document(len)
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn qt_page(page: usize) -> i32 {
+    engine().document_page(page)
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn qt_pdf() -> i32 {
+    engine().document_pdf()
+}
+
+#[unsafe(no_mangle)]
 extern "C" fn qt_use(len: usize) -> i32 {
     engine().use_session_package(len)
 }

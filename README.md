@@ -37,6 +37,21 @@ render(String.raw`\dv{f}{x}`)
 
 `render(tex, display)` returns an SVG string and throws `QuicktexError` on invalid input. The error has a `position` into the source.
 
+## Full editor
+
+`/editor/` is a separate page for whole documents. Write on the left, read the pages on the right, and download a PDF. It runs entirely in the browser and keeps your document in local storage.
+
+```js
+import { init, renderDocument, documentPage, documentPdf } from './wasm-core/js/quicktex.js'
+
+await init()
+const pages = renderDocument(source)
+const svg = documentPage(0)
+const pdf = documentPdf()
+```
+
+It handles `article` style documents: titles, abstracts, numbered sections, paragraphs, inline and displayed math, numbered equations, lists, quotes and centered text. It does not yet handle `\ref`, `\cite`, footnotes, tables, figures, images, or a table of contents. Text in the PDF is drawn as shapes, so it cannot be selected or searched.
+
 ## Packages
 
 Load a package with `\usepackage{...}` in the input, which lasts for that render, or with `usePackage(name)`, which lasts until the page closes.
@@ -54,7 +69,10 @@ Your own commands work too: `\newcommand`, `\renewcommand`, `\providecommand`, `
 | `wasm-core/src/tex.rs` | Parser and layout |
 | `wasm-core/src/tex/macros.rs` | Macros and package loading |
 | `wasm-core/src/packages.rs` | Package definitions |
+| `wasm-core/src/tex/document.rs` | Paragraphs, sections, lists and pages |
+| `wasm-core/src/tex/pdf.rs` | PDF output |
 | `wasm-core/src/emit.rs` | SVG output |
 | `wasm-core/src/data.rs`, `*.bin` | Glyph outlines and metrics |
 | `wasm-core/js` | JavaScript API and the built wasm |
-| `src` | Demo page |
+| `src` | Formula page |
+| `src/editor`, `editor` | Full editor page |

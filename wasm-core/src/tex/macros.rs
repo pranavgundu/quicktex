@@ -160,11 +160,11 @@ impl Engine {
         }
     }
 
-    fn balanced(&mut self) -> R<&'static [u8]> {
+    pub(super) fn balanced(&mut self) -> R<&'static [u8]> {
         self.scan(b'{', b'}', b'}')
     }
 
-    fn bracketed(&mut self) -> R<&'static [u8]> {
+    pub(super) fn bracketed(&mut self) -> R<&'static [u8]> {
         self.scan(b'{', b'}', b']')
     }
 
@@ -219,7 +219,7 @@ impl Engine {
         if self.user_src { Ok(()) } else { self.fail(E_MISPLACED) }
     }
 
-    fn skip_star(&mut self) -> bool {
+    pub(super) fn skip_star(&mut self) -> bool {
         if self.peek() == b'*' {
             self.pos += 1;
             true

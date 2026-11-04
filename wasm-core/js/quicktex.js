@@ -42,10 +42,10 @@ export async function init(source) {
   reserve(4096);
 }
 
-export function render(tex, display = false) {
+function stage(tex) {
   const len = tex.length;
   reserve(len * 3);
-  let u8 = view();
+  const u8 = view();
   let n = 0;
   if (len <= 512) {
     for (; n < len; n++) {
@@ -55,13 +55,39 @@ export function render(tex, display = false) {
     }
   }
   if (n < len) n = encoder.encodeInto(tex, u8.subarray(input, input + capacity)).written;
-  const size = exports_.qt_render(n, display ? 1 : 0);
+  return n;
+}
+
+function fail(size) {
   const out = exports_.qt_output();
-  u8 = view();
-  if (size < 0) {
-    throw new QuicktexError(decoder.decode(u8.subarray(out, out - size)), exports_.qt_error_pos());
-  }
-  return decoder.decode(u8.subarray(out, out + size));
+  throw new QuicktexError(decoder.decode(view().subarray(out, out - size)), exports_.qt_error_pos());
+}
+
+function text(size) {
+  const out = exports_.qt_output();
+  return decoder.decode(view().subarray(out, out + size));
+}
+
+export function render(tex, display = false) {
+  const size = exports_.qt_render(stage(tex), display ? 1 : 0);
+  if (size < 0) fail(size);
+  return text(size);
+}
+
+export function renderDocument(tex) {
+  const pages = exports_.qt_document(stage(tex));
+  if (pages < 0) fail(pages);
+  return pages;
+}
+
+export function documentPage(page) {
+  return text(exports_.qt_page(page));
+}
+
+export function documentPdf() {
+  const size = exports_.qt_pdf();
+  const out = exports_.qt_output();
+  return view().slice(out, out + size);
 }
 
 export function usePackage(name) {
