@@ -1,0 +1,57 @@
+:root {
+  --paper: #e9f2df;
+  --sheet: #f7fbf2;
+  --rule: #c4dab6;
+  --rule-strong: #a3c594;
+  --ink: #16241d;
+  --stale: #6a7f72;
+  --green: #1b5e44;
+  --green-deep: #0f3d2b;
+  --red: #a91e14;
+
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 16px;
+  --s4: 24px;
+  --s5: 32px;
+
+  color-scheme: light;
+  color: var(--ink);
+  background: var(--paper);
+  font: 18px/1.5 Georgia, 'Times New Roman', serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 3px solid var(--green);
+  outline-offset: 2px;
+}
+
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
