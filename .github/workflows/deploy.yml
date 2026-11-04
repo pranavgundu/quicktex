@@ -1,4 +1,4 @@
-name: Deploy
+name: CD deploy
 
 on:
   push:
@@ -14,9 +14,11 @@ concurrency:
 
 jobs:
   build:
-    uses: ./.github/workflows/ci.yml
+    name: CI
+    uses: ./.github/workflows/build.yml
 
   deploy:
+    name: CD deploy
     if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest

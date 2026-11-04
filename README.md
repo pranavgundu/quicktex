@@ -18,7 +18,7 @@ bun run dev
 
 ## Deploy
 
-`.github/workflows/ci.yml` builds and checks every pull request. `.github/workflows/deploy.yml` runs on every push to `main`: it calls CI, then publishes that build to GitHub Pages. The build uses relative paths, so it works at any Pages URL or custom domain.
+`.github/workflows/build.yml` builds and checks every pull request. `.github/workflows/deploy.yml` runs on every push to `main`: it calls CI build, then publishes that build to GitHub Pages. The build uses relative paths, so it works at any Pages URL or custom domain.
 
 To turn it on, set **Settings > Pages > Source** to **GitHub Actions**.
 
