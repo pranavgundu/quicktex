@@ -5,7 +5,6 @@ edition = "2024"
 
 [lib]
 crate-type = ["cdylib"]
-test = false
 doctest = false
 
 [profile.release]
@@ -13,3 +12,6 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = true
+
+[profile.test]
+opt-level = 1

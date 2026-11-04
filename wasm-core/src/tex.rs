@@ -149,6 +149,10 @@ const FRAC_STYLE: u8 = 3;
 const FRAC_NO_BAR: u8 = 8;
 const FRAC_PAREN: u8 = 16;
 
+#[cfg(test)]
+mod tests;
+
+const NOT_EQUAL: u32 = 0x2260;
 const E_END: u8 = 1;
 const E_BRACE: u8 = 2;
 const E_CMD: u8 = 3;
@@ -619,7 +623,7 @@ impl Engine {
     fn fail<T>(&mut self, code: u8) -> R<T> {
         if self.err == 0 {
             self.err = code;
-            self.err_pos = if self.user_src { self.pos } else { self.call_pos };
+            self.err_pos = if self.user_src { self.pos.min(self.len) } else { self.call_pos };
         }
         Err(())
     }
@@ -1118,8 +1122,16 @@ impl Engine {
     }
 
     fn utf8_atom(&mut self, c: &Ctx) -> R<Atom> {
-        let (b, _) = self.read_utf8()?;
+        let tok = self.pos;
+        let (b, cp) = self.read_utf8()?;
         let Some(s) = lookup(b) else {
+            if cp == NOT_EQUAL {
+                if let Some(s) = lookup(b"neq") {
+                    let bx = self.list_in(macro_text(s), s.arg as usize, *c)?;
+                    return Ok(Self::plain(bx, REL));
+                }
+            }
+            self.pos = tok;
             return self.fail(E_CHAR);
         };
         self.fn_atom(c, s)
@@ -1357,6 +1369,7 @@ impl Engine {
             K_LEFT => self.left_right(c),
             K_BIG => {
                 let cp = self.delim_token()?;
+                self.check_delim(cp)?;
                 let bx = self.delim_sized(c, cp, s.arg as usize);
                 Ok(Self::plain(bx, s.class))
             }

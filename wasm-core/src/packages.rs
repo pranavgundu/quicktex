@@ -109,7 +109,7 @@ pub static PACKAGES: &[Package] = &[
             ("iiiint", "", r"\int\!\!\!\int\!\!\!\int\!\!\!\int"),
             ("idotsint", "", r"\int\!\cdots\!\int"),
             ("pmb", "m", r"\boldsymbol{#1}"),
-            ("varinjlim", "", r"\mathop{\underrightarrow{\mathrm{lim}}}"),
+            ("varinjlim", "", r"\mathop{\underset{\longrightarrow}{\mathrm{lim}}}"),
             ("injlim", "", r"\operatorname*{inj\,lim}"),
             ("projlim", "", r"\operatorname*{proj\,lim}"),
         ],

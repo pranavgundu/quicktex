@@ -18,7 +18,7 @@ bun run dev
 
 ## Deploy
 
-`.github/workflows/build.yml` builds and checks every pull request and every push to `main`. `.github/workflows/deploy.yml` runs after a passing build of `main` and publishes that build to GitHub Pages. The build uses relative paths, so it works at any Pages URL or custom domain.
+`.github/workflows/build.yml` tests and builds every pull request and every push to `main`. `.github/workflows/deploy.yml` runs after a passing build of `main` and publishes that build to GitHub Pages. The build uses relative paths, so it works at any Pages URL or custom domain.
 
 To turn it on, set **Settings > Pages > Source** to **GitHub Actions**.
 
@@ -54,7 +54,18 @@ It handles `article` style documents: titles, abstracts, numbered sections, para
 
 Drawings use a subset of TikZ and pgfplots: lines, curves, rectangles, circles, ellipses, arcs, arrow tips, nodes, named coordinates, `calc` points, scopes with scale, shift and rotate, styles, and `axis` plots with coordinates, functions, grids, legends and automatic ticks. An option outside that subset is an `unsupported drawing option` error on its line.
 
-It does not yet handle `\ref`, `\cite`, footnotes, images, `\foreach`, `\multicolumn`, a table of contents, or hyphenation, so line breaks differ from `pdflatex`. Floats stay where they are written, except wide `figure*` floats, which move to the top of the next page. Text in the PDF is drawn as shapes, so it cannot be selected or searched.
+It does not yet handle `\ref`, `\cite`, footnotes, images, `\foreach`, `\multicolumn`, `\textcolor` in body text, accented letters, row numbers in `align`, a table of contents, or hyphenation, so line breaks differ from `pdflatex`. Floats stay where they are written, except wide `figure*` floats, which move to the top of the next page. Text in the PDF is drawn as shapes, so it cannot be selected or searched.
+
+## Tests
+
+```sh
+bun run test:rust
+bun run wasm
+bun run build
+bun run test
+```
+
+`test:rust` runs the engine tests natively. `test` runs the real wasm binary, recorded output hashes, speed budgets, and the production build in Chrome. After an intended output change, rerun with `UPDATE_GOLDEN=1 bun test tests/golden.test.ts` and review the diff.
 
 ## Packages
 

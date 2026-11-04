@@ -1,6 +1,7 @@
 use crate::data::*;
 use crate::tex::*;
 use alloc::vec::Vec;
+#[cfg(not(test))]
 use core::arch::wasm32::{v128, v128_load, v128_store};
 
 static DIGITS: [u8; 200] = {
@@ -106,6 +107,15 @@ unsafe fn em(p: &mut *mut u8, v: i32) {
     }
 }
 
+#[cfg(test)]
+unsafe fn copy_path(p: &mut *mut u8, src: *const u8, len: usize) {
+    unsafe {
+        core::ptr::copy_nonoverlapping(src, *p, len);
+        *p = p.add(len);
+    }
+}
+
+#[cfg(not(test))]
 #[inline(always)]
 unsafe fn copy_path(p: &mut *mut u8, src: *const u8, len: usize) {
     unsafe {

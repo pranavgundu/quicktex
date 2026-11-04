@@ -1,6 +1,7 @@
 use super::plot::{AxisMap, Plot};
 use super::*;
 use core::cell::Cell;
+#[cfg(not(test))]
 use core::arch::wasm32::{f64x2_extract_lane, f64x2_splat, f64x2_sqrt};
 
 pub(super) const CM: f64 = 28.452756;
@@ -11,9 +12,20 @@ const MAX_STYLE_DEPTH: u32 = 8;
 const MAX_CALC_DEPTH: u32 = 32;
 const MAX_SWEEP: f64 = 1440.0;
 const OPTION_BUDGET: u32 = 20000;
+const MAX_UNITS: f64 = 1e8;
 
+fn to_units(v: f64) -> i32 {
+    v.clamp(-MAX_UNITS, MAX_UNITS) as i32
+}
+
+#[cfg(not(test))]
 pub(super) fn sqrt(v: f64) -> f64 {
     f64x2_extract_lane::<0>(f64x2_sqrt(f64x2_splat(v)))
+}
+
+#[cfg(test)]
+pub(super) fn sqrt(v: f64) -> f64 {
+    v.sqrt()
 }
 
 pub(super) fn floor(v: f64) -> f64 {
@@ -254,11 +266,12 @@ impl Calc<'_> {
     fn atom(&mut self) -> Option<f64> {
         self.gap();
         let ch = self.peek();
-        if ch == b'(' {
+        if ch == b'(' || ch == b'{' {
+            let close = if ch == b'(' { b')' } else { b'}' };
             self.i += 1;
             let v = self.sum()?;
             self.gap();
-            if self.peek() != b')' {
+            if self.peek() != close {
                 return None;
             }
             self.i += 1;
@@ -1403,9 +1416,13 @@ impl Engine {
         for i in 0..pic.path.len() {
             let (op, x, y) = pic.path[i];
             pic.grow(x, y);
-            self.doc.segs.push(Seg { op, x: (x * k) as i32, y: (-y * k) as i32 });
+            self.doc.segs.push(Seg { op, x: to_units(x * k), y: to_units(-y * k) });
         }
         pic.path.clear();
+        if !drawn && !solid {
+            self.doc.segs.truncate(s as usize);
+            return;
+        }
         let fill = if !solid {
             NO_COLOR
         } else if pen.fill != NO_COLOR {
@@ -1598,7 +1615,7 @@ impl Engine {
             core::mem::swap(&mut pic.path, &mut pic.aside);
         }
         let k = 1000.0 / self.doc.pt as f64;
-        let (cx, cy) = ((center.0 * k) as i32, (-center.1 * k) as i32);
+        let (cx, cy) = (to_units(center.0 * k), to_units(-center.1 * k));
         let lift = (b.h - b.d) / 2;
         if n.turn == 0.0 {
             self.shift(b.s, b.e, cx - b.w / 2, cy + lift);
@@ -1771,8 +1788,8 @@ impl Engine {
             return Ok(());
         }
         let k = 1000.0 / self.doc.pt as f64;
-        let (dx, dy) = ((-x0 * k) as i32, (y0 * k) as i32);
-        let (w, h) = (((x1 - x0) * k) as i32, ((y1 - y0) * k) as i32);
+        let (dx, dy) = (to_units(-x0 * k), to_units(y0 * k));
+        let (w, h) = (to_units((x1 - x0) * k), to_units((y1 - y0) * k));
         let y = self.place_line(d, h, 0);
         let x = left + if d.center { ((width - w) / 2).max(0) } else { 0 };
         self.shift(s, e, dx, dy);
@@ -1786,3 +1803,6 @@ impl Engine {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

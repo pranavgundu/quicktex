@@ -693,3 +693,6 @@ impl Engine {
         done
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,0 +1,90 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\newcommand{\R}{\mathbb{R}}
+\title{Notes on the Gaussian Integral}
+\author{A. Student}
+\date{4 November 2026}
+\begin{document}
+\maketitle
+\begin{abstract}
+We compute a classic integral and use it to show how a document mixes running text, displayed mathematics and lists.
+\end{abstract}
+
+\section{Introduction}
+The Gaussian integral appears throughout probability, physics and analysis. It is remarkable that a function with no elementary antiderivative has an exact value over the whole real line. Consider $f(x) = e^{-x^2}$ on $\R$, which is smooth, positive and decays faster than any polynomial. Its integral is written
+\[ I = \int_{-\infty}^{\infty} e^{-x^2}\,dx \]
+and this paragraph continues straight after the display without a new indent, the way \LaTeX\ does.
+
+A second paragraph shows \textbf{bold text}, \emph{emphasis}, \texttt{typewriter text}, ``quotes'', an en--dash and an em---dash. Inline fractions like $\frac{a}{b}$ and sums like $\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}$ sit inside the line and the spacing stretches around them so that every full line finishes flush with the right margin.
+
+\subsection{The polar trick}
+Squaring the integral gives a double integral, and polar coordinates finish the job:
+\begin{equation}
+I^2 = \int_0^{2\pi}\!\!\int_0^\infty e^{-r^2}\, r\,dr\,d\theta = \pi
+\end{equation}
+so we conclude that
+\begin{align*}
+I &= \sqrt{\pi} \\
+\frac{1}{\sqrt{2\pi}}\int e^{-x^2/2}\,dx &= 1
+\end{align*}
+
+\section{Lists}
+Things to remember:
+\begin{itemize}
+\item Bullets hang in the margin of the list.
+\item Long items wrap so that the second line of the item lines up with the first line of the item, not with the bullet in the margin beside it.
+\item Nesting works too:
+  \begin{enumerate}
+  \item first inner item
+  \item second inner item with $x^2 + y^2 = r^2$
+  \end{enumerate}
+\end{itemize}
+
+\begin{center}
+This text is centered.
+\end{center}
+
+\newpage
+\section*{A starred section on page two}
+This section has no number. Color in math: $\textcolor{red}{x^2} + \textcolor{blue}{y^2}$.
+Forced line\\break here.
+
+
+Filler paragraph number 1 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 1 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 1 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 2 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 2 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 2 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 3 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 3 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 3 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 4 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 4 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 4 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 5 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 5 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 5 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 6 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 6 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 6 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 7 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 7 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 7 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 8 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 8 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 8 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 9 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 9 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 9 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 10 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 10 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 10 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 11 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 11 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 11 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 12 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 12 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 12 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+
+
+Filler paragraph number 13 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 13 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. Filler paragraph number 13 keeps going so that we can check that long documents break across pages properly, with page numbers at the bottom of every sheet and no line falling off the end. 
+\end{document}

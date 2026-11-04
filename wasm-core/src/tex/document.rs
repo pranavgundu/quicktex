@@ -1,6 +1,9 @@
 use super::*;
 
 mod figure;
+#[cfg(test)]
+mod tests;
+
 mod float;
 mod plot;
 
@@ -193,6 +196,7 @@ fn ends_paragraph(name: &[u8]) -> bool {
             | b"medskip"
             | b"smallskip"
             | b"vspace"
+            | b"caption"
     )
 }
 
@@ -827,7 +831,7 @@ impl Engine {
         self.inline(d, &c, &mut font, true)?;
         self.flush_word(d, false);
         d.skip += before;
-        if !d.fresh && d.base + d.skip + 4 * d.baseline > d.text_h {
+        if !d.fresh && d.base.saturating_add(d.skip).saturating_add(4 * d.baseline) > d.text_h {
             self.new_page(d)?;
         }
         self.set_lines(d, &c, left, width, 0, true, false);
@@ -978,7 +982,12 @@ impl Engine {
                     self.put_char(d, c, *font, ch as u32)?;
                 }
                 _ => {
+                    let tok = self.pos;
                     let (_, cp) = self.read_utf8()?;
+                    if glyph_id(*font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp)).is_none() {
+                        self.pos = tok;
+                        return self.fail(E_CHAR);
+                    }
                     self.put_char(d, c, *font, cp)?;
                 }
             }
@@ -1121,8 +1130,8 @@ impl Engine {
 
     fn place_line(&mut self, d: &mut Doc, h: i32, dep: i32) -> i32 {
         if !d.fresh {
-            let y = d.base + d.baseline.max(d.dep + h + LINESKIP) + d.skip;
-            if y + dep <= d.text_h {
+            let y = d.base.saturating_add(d.baseline.max(d.dep.saturating_add(h).saturating_add(LINESKIP))).saturating_add(d.skip);
+            if y.saturating_add(dep) <= d.text_h {
                 d.base = y;
                 d.dep = dep;
                 d.skip = 0;
