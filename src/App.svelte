@@ -1,6 +1,7 @@
 <script lang="ts">
   import { QuicktexError, render } from '../wasm-core/js/quicktex.js'
   import Typeset from './lib/Typeset.svelte'
+  import { svgToPng } from './lib/png'
 
   const examples = [
     { name: 'Gaussian integral', tex: String.raw`\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}` },
@@ -23,7 +24,7 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
   let svg = $state('')
   let problem = $state('')
   let micros = $state(0)
-  let copyLabel = $state('Copy SVG')
+  let notice = $state({ target: '', text: '' })
   let stageWidth = $state(0)
   let stageHeight = $state(0)
   let copyTimer = 0
@@ -77,16 +78,25 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
   const amount = $derived(slow ? (micros / 1000).toFixed(1) : micros.toFixed(micros < 10 ? 1 : 0))
   const weight = $derived(`${(svg.length / 1024).toFixed(1)} KB of SVG`)
 
-  async function copySvg() {
-    clearTimeout(copyTimer)
-    try {
-      await navigator.clipboard.writeText(svg)
-      copyLabel = 'Copied'
-    } catch {
-      copyLabel = 'Copy blocked'
-    }
-    copyTimer = window.setTimeout(() => (copyLabel = 'Copy SVG'), 1600)
+  function copyLabel(target: string, idle: string) {
+    return notice.target === target ? notice.text : idle
   }
+
+  async function copy(target: string, write: () => Promise<void>) {
+    clearTimeout(copyTimer)
+    notice = { target, text: 'Copying' }
+    try {
+      await write()
+      notice = { target, text: 'Copied' }
+    } catch {
+      notice = { target, text: 'Copy blocked' }
+    }
+    copyTimer = window.setTimeout(() => (notice = { target: '', text: '' }), 1600)
+  }
+
+  const copySvg = () => copy('svg', () => navigator.clipboard.writeText(svg))
+  const copyImage = () =>
+    copy('image', () => navigator.clipboard.write([new ClipboardItem({ 'image/png': svgToPng(svg) })]))
 </script>
 
 <main>
@@ -158,8 +168,11 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
             <Typeset text="Inline" />
           </label>
         </fieldset>
+        <button class="copy" type="button" disabled={empty} onclick={copyImage}>
+          <Typeset text={copyLabel('image', 'Copy image')} />
+        </button>
         <button class="copy" type="button" disabled={empty} onclick={copySvg}>
-          <Typeset text={copyLabel} />
+          <Typeset text={copyLabel('svg', 'Copy SVG')} />
         </button>
       </div>
     </div>
@@ -416,7 +429,12 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
     }
 
     .actions {
+      flex-wrap: wrap;
       justify-content: space-between;
+    }
+
+    .copy {
+      flex: 1;
     }
   }
 </style>
