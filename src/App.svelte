@@ -1,6 +1,8 @@
 <script lang="ts">
   import { QuicktexError, render } from '../wasm-core/js/quicktex.js'
+  import Editor from './lib/Editor.svelte'
   import Typeset from './lib/Typeset.svelte'
+  import { charIndex } from './lib/latex'
   import { svgToPng } from './lib/png'
 
   const examples = [
@@ -25,6 +27,7 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
   let display = $state(true)
   let svg = $state('')
   let problem = $state('')
+  let problemAt = $state<number | null>(null)
   let micros = $state(0)
   let notice = $state({ target: '', text: '' })
   let pageWidth = $state(0)
@@ -62,10 +65,12 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
     try {
       svg = render(tex, mode)
       problem = ''
+      problemAt = null
     } catch (error) {
       if (!(error instanceof QuicktexError)) throw error
       const message = error.message[0].toUpperCase() + error.message.slice(1)
-      problem = `${message} at character ${error.position + 1}`
+      problemAt = charIndex(tex, error.position)
+      problem = `${message} at character ${problemAt + 1}`
       return
     }
     if (empty) return
@@ -145,14 +150,7 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
       <p class="problem" role="status">
         {#if problem}<Typeset text={problem} />{/if}
       </p>
-      <textarea
-        id="source"
-        rows="3"
-        spellcheck="false"
-        autocapitalize="off"
-        autocomplete="off"
-        bind:value={source}
-      ></textarea>
+      <Editor id="source" bind:value={source} errorAt={problemAt} />
     </div>
 
     <div class="tools">
@@ -196,13 +194,13 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
 
 <style>
   .page {
-    min-height: 100%;
-    display: grid;
+    height: 100%;
   }
 
   main {
     display: grid;
     grid-template-rows: auto minmax(240px, 1fr) auto;
+    min-height: 100%;
   }
 
   header {
@@ -229,10 +227,12 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
   }
 
   .stage {
-    min-height: 0;
+    position: relative;
   }
 
   .sheet {
+    position: absolute;
+    inset: 0 0 auto;
     display: flex;
     overflow: auto;
     padding: var(--s4);
@@ -284,19 +284,6 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
     line-height: var(--s5);
     color: var(--red);
     text-align: right;
-  }
-
-  textarea {
-    grid-column: 1 / -1;
-    width: 100%;
-    padding: var(--s2) var(--s3);
-    border: 2px solid var(--ink);
-    border-radius: 0;
-    background: var(--sheet);
-    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-    font-size: 16px;
-    line-height: 1.5;
-    resize: vertical;
   }
 
   .tools {
