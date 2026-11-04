@@ -176,11 +176,20 @@ pub(crate) fn brace_path(it: &Item, out: &mut [u8; 512]) -> usize {
     }
 }
 
+const LINE_BAND: i32 = 1000;
+
 impl Engine {
     pub(crate) fn emit(&mut self, root: Bx) {
+        self.emit_as(root, false);
+    }
+
+    pub(crate) fn emit_as(&mut self, root: Bx, banded: bool) {
         let n = self.items.len();
         let ng = self.groups.len();
         let mut cap = 512 + ng * 96 + self.art.len();
+        if banded {
+            cap += n * 128;
+        }
         self.counts.clear();
         self.counts.resize(ng + 1, 0);
         for it in &self.items {
@@ -196,7 +205,7 @@ impl Engine {
         for i in 1..=ng {
             self.counts[i] += self.counts[i - 1];
         }
-        let single = self.counts[1] as usize == n;
+        let single = !banded && self.counts[1] as usize == n;
         if !single {
             self.order.clear();
             self.order.resize(n, 0);
@@ -227,11 +236,31 @@ impl Engine {
             put(p, b"\" fill=\"currentColor\" style=\"vertical-align:");
             em(p, -d);
             put(p, b";overflow:visible\">");
+            if banded {
+                byte(p, b'\n');
+            }
             if !self.art.is_empty() {
                 put(p, &self.art);
                 self.art.clear();
             }
-            if single {
+            if banded {
+                let mut i = 0;
+                while i < n {
+                    let first = self.items[self.order[i] as usize];
+                    let band = first.y / LINE_BAND;
+                    let g = self.groups[first.g as usize];
+                    self.open_path(p, g);
+                    while i < n {
+                        let it = *self.items.get_unchecked(*self.order.get_unchecked(i) as usize);
+                        if it.g != first.g || it.y / LINE_BAND != band {
+                            break;
+                        }
+                        Self::item(p, &it, g.scale);
+                        i += 1;
+                    }
+                    put(p, b"\"/>\n");
+                }
+            } else if single {
                 if n > 0 {
                     let g = self.groups[self.items[0].g as usize];
                     self.open_path(p, g);

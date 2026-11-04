@@ -1,9 +1,10 @@
-name: CD deploy
+name: CD
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,21 +14,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: CI
-    uses: ./.github/workflows/build.yml
-
   deploy:
-    name: CD deploy
-    if: github.ref == 'refs/heads/main'
-    needs: build
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: github-pages
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: github-pages
+          path: artifact.tar
+          retention-days: 1
       - id: deployment
         uses: actions/deploy-pages@v5

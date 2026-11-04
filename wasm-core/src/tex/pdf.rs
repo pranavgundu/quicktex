@@ -379,7 +379,7 @@ impl Engine {
                 int(&mut out, a.y);
                 out.extend_from_slice(b")\">");
                 self.text_paths(&self.laid.spun[a.s as usize..a.e as usize], &mut out);
-                out.extend_from_slice(b"</g>");
+                out.extend_from_slice(b"</g>\n");
                 continue;
             }
             out.extend_from_slice(b"<path d=\"");
@@ -435,7 +435,7 @@ impl Engine {
                     out.extend_from_slice(b" stroke-linecap=\"round\" stroke-linejoin=\"round\"");
                 }
             }
-            out.extend_from_slice(b"/>");
+            out.extend_from_slice(b"/>\n");
         }
         self.art = out;
     }

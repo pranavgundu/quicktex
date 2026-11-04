@@ -4,6 +4,7 @@
   import Icon from '../lib/Icon.svelte'
   import Typeset from '../lib/Typeset.svelte'
   import { minus, plus } from '../lib/icons'
+  import { showPage } from './patch'
 
   let { count, version }: { count: number; version: number } = $props()
 
@@ -69,9 +70,8 @@
           style:width="{pageWidth}em"
           style:height="{pageHeight}em"
           use:watch={page}
-        >
-          {@html rendered[page] ?? ''}
-        </article>
+          use:showPage={rendered[page] ?? ''}
+        ></article>
       {/each}
     </div>
   </div>

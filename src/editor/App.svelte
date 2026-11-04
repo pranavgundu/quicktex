@@ -14,6 +14,7 @@
 
   const storageKey = 'quicktex-document'
   const saveDelay = 400
+  const pdfDelay = 150
   const splitStorageKey = 'quicktex-split'
 
   let source = $state(remembered(storageKey) ?? starter)
@@ -22,12 +23,16 @@
   let problem = $state('')
   let problemAt = $state<number | null>(null)
   let millis = $state(0)
+  let pdfMillis = $state<number | null>(null)
   let split = $state(Number(remembered(splitStorageKey)) || 50)
   let showing = $state<'source' | 'pages'>('source')
   let workspace: HTMLElement
   let editor: Source
 
-  const elapsed = $derived(millis < 0.1 ? 'under 0.1' : millis < 10 ? millis.toFixed(1) : Math.round(millis))
+  const duration = (ms: number) => (ms < 0.1 ? 'under 0.1' : ms < 10 ? ms.toFixed(1) : Math.round(ms))
+  const timing = $derived(
+    `${duration(millis)} ms${pdfMillis === null ? '' : `, PDF ${duration(pdfMillis)} ms`}`,
+  )
 
   function compile(tex: string) {
     const start = performance.now()
@@ -56,8 +61,21 @@
     }
   })
 
+  function makePdf() {
+    const start = performance.now()
+    const pdf = documentPdf()
+    pdfMillis = performance.now() - start
+    return pdf
+  }
+
+  $effect(() => {
+    if (version === 0) return
+    const timer = setTimeout(makePdf, pdfDelay)
+    return () => clearTimeout(timer)
+  })
+
   function download() {
-    const url = URL.createObjectURL(new Blob([documentPdf() as BlobPart], { type: 'application/pdf' }))
+    const url = URL.createObjectURL(new Blob([makePdf() as BlobPart], { type: 'application/pdf' }))
     const link = document.createElement('a')
     link.href = url
     link.download = 'document.pdf'
@@ -139,7 +157,7 @@
             {/if}
           </button>
         {:else}
-          <p class="px-4"><Typeset text={`${pages} ${pages === 1 ? 'page' : 'pages'}, ${elapsed} ms`} /></p>
+          <p class="px-4"><Typeset text={`${pages} ${pages === 1 ? 'page' : 'pages'}, ${timing}`} /></p>
         {/if}
       </div>
     </section>

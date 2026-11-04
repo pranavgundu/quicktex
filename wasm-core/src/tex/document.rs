@@ -294,7 +294,7 @@ impl Engine {
         let to = self.laid.art_pages[page] as usize;
         self.art_svg(from, to);
         let n = self.end();
-        self.emit(Bx { s: 0, e: n, w: self.laid.w, h: 0, d: self.laid.h });
+        self.emit_as(Bx { s: 0, e: n, w: self.laid.w, h: 0, d: self.laid.h }, true);
         self.out.len() as i32
     }
 
