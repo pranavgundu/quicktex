@@ -1,6 +1,10 @@
 <script lang="ts">
   import { QuicktexError, render } from '../wasm-core/js/quicktex.js'
+  import Button from './lib/Button.svelte'
+  import Segmented from './lib/Segmented.svelte'
+  import ThemeToggle from './lib/ThemeToggle.svelte'
   import Typeset from './lib/Typeset.svelte'
+  import { check, code, edit, image } from './lib/icons'
   import { charIndex } from './lib/latex'
   import { svgToPng } from './lib/png'
 
@@ -18,12 +22,12 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
   ]
 
   const cell = 24
-  const frame = 2
+  const frame = 1
   const stagePadding = 48
   const timingDelay = 150
 
   let source = $state(examples[0].tex)
-  let display = $state(true)
+  let layout = $state<'display' | 'inline'>('display')
   let svg = $state('')
   let problem = $state('')
   let micros = $state(0)
@@ -34,6 +38,7 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
   let timed = false
 
   const empty = $derived(source.trim() === '')
+  const display = $derived(layout === 'display')
 
   function wholeCells(space: number) {
     return Math.max(Math.floor((space - 2 * frame + 1) / cell), 1) * cell - 1
@@ -44,6 +49,7 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
   const sheetHeight = $derived(wholeCells(stageHeight))
   const columnWidth = $derived(sheetWidth + 2 * frame)
   const columnLeft = $derived(Math.floor((pageWidth - columnWidth) / 2))
+  const spare = $derived(Math.max(stageHeight - sheetHeight - 2 * frame, 0))
 
   function time(tex: string, mode: boolean) {
     const start = performance.now()
@@ -95,6 +101,10 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
     return notice.target === target ? notice.text : idle
   }
 
+  function copyIcon(target: string, idle: string) {
+    return notice.target === target && notice.text === 'Copied' ? check : idle
+  }
+
   async function copy(target: string, write: () => Promise<void>) {
     clearTimeout(copyTimer)
     notice = { target, text: 'Copying' }
@@ -112,342 +122,106 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
     copy('image', () => navigator.clipboard.write([new ClipboardItem({ 'image/png': svgToPng(svg) })]))
 </script>
 
-<div class="page" bind:clientWidth={pageWidth}>
-<main style:width="{columnWidth}px" style:margin-left="{columnLeft}px">
-  <header>
-    <h1><Typeset text="quicktex" tex={String.raw`\textbf{quicktex}`} /></h1>
-    <p>
-      <Typeset
-        text={`Rendered in ${amount} ${slow ? 'ms' : 'µs'}`}
-        tex={`\\text{${amount} }${slow ? '\\text{ms}' : '\\mu\\text{s}'}`}
-      />
-    </p>
-    <p><Typeset text={`${weight} of SVG`} tex={`\\text{${weight}}`} /></p>
-    <a class="full" href="./editor/"><Typeset text="Full editor" /></a>
-  </header>
-
-  <div class="stage" bind:clientHeight={stageHeight}>
-    <section
-      class="sheet"
-      class:stale={problem !== ''}
-      aria-label="Rendered formula"
-      style:height="{sheetHeight + 2 * frame}px"
-    >
-      {#if empty}
-        <div class="formula hint"><Typeset text="Type LaTeX below and it appears here" /></div>
-      {:else}
-        <div class="formula" style:font-size="{fit}px">{@html svg}</div>
-      {/if}
-    </section>
-  </div>
-
-  <section class="desk">
-    <div class="source">
-      <label for="source"><Typeset text="LaTeX" /></label>
-      <p class="problem" role="status">
-        {#if problem}<Typeset text={problem} />{/if}
+<div class="h-full" bind:clientWidth={pageWidth}>
+  <main
+    class="grid min-h-full grid-rows-[auto_minmax(240px,1fr)_auto]"
+    style:width="{columnWidth}px"
+    style:margin-left="{columnLeft}px"
+  >
+    <header class="flex items-center gap-4 py-4">
+      <h1 class="flex-1 text-[32px] leading-none font-normal">
+        <Typeset text="quicktex" tex={String.raw`\textbf{quicktex}`} />
+      </h1>
+      <p class="hidden text-sm text-quiet sm:block">
+        <Typeset
+          text={`Rendered in ${amount} ${slow ? 'ms' : 'µs'}`}
+          tex={`\\text{${amount} }${slow ? '\\text{ms}' : '\\mu\\text{s}'}`}
+        />
       </p>
-      <textarea
-        id="source"
-        rows="3"
-        spellcheck="false"
-        autocapitalize="off"
-        autocomplete="off"
-        bind:value={source}
-      ></textarea>
+      <p class="hidden text-sm text-quiet sm:block">
+        <Typeset text={`${weight} of SVG`} tex={`\\text{${weight}}`} />
+      </p>
+      <ThemeToggle />
+      <Button href="./editor/" icon={edit} label="Open editor" />
+    </header>
+
+    <div class="relative" bind:clientHeight={stageHeight}>
+      <section
+        class={[
+          'graph-paper absolute inset-x-0 top-0 flex overflow-auto rounded-control border border-rule-strong p-6',
+          problem !== '' && 'text-stale',
+        ]}
+        aria-label="Rendered formula"
+        style:height="{sheetHeight + 2 * frame}px"
+      >
+        {#if empty}
+          <div class="m-auto text-2xl text-green"><Typeset text="Type LaTeX below and it appears here" /></div>
+        {:else}
+          <div class="m-auto leading-none" style:font-size="{fit}px">{@html svg}</div>
+        {/if}
+      </section>
     </div>
 
-    <div class="tools">
-      <div class="examples">
+    <section class="grid gap-4 pt-4 pb-6" style:translate="0 -{spare}px">
+      <div class="rounded-control border border-rule-strong bg-sheet focus-within:border-green">
+        <label class="sr-only" for="source">LaTeX source</label>
+        <textarea
+          id="source"
+          class="block w-full resize-y rounded-t-control bg-transparent px-4 py-2 font-mono text-base leading-6 outline-none"
+          rows="3"
+          spellcheck="false"
+          autocapitalize="off"
+          autocomplete="off"
+          bind:value={source}
+        ></textarea>
+        <div class="flex flex-wrap items-center gap-2 border-t border-rule p-2">
+          <Segmented
+            class="max-sm:basis-full"
+            legend="Layout"
+            name="layout"
+            bind:value={layout}
+            options={[
+              { value: 'display', label: 'Display' },
+              { value: 'inline', label: 'Inline' },
+            ]}
+          />
+          <p class="min-w-0 flex-1 px-2 text-red max-sm:order-last max-sm:basis-full" role="status">
+            {#if problem}<Typeset text={problem} />{/if}
+          </p>
+          <Button
+            primary
+            class="min-w-36 max-sm:flex-1"
+            disabled={empty}
+            icon={copyIcon('image', image)}
+            label={copyLabel('image', 'Copy image')}
+            onclick={copyImage}
+          />
+          <Button
+            class="min-w-36 max-sm:flex-1"
+            disabled={empty}
+            icon={copyIcon('svg', code)}
+            label={copyLabel('svg', 'Copy SVG')}
+            onclick={copySvg}
+          />
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
         {#each examples as example (example.name)}
           <button
-            class="example"
-            class:current={source === example.tex}
+            class={[
+              'flex min-h-12 items-center rounded-control border px-4 py-1 hover:border-ink hover:bg-sheet active:bg-rule',
+              source === example.tex ? 'border-ink bg-sheet' : 'border-rule-strong',
+            ]}
             type="button"
             aria-label={example.name}
+            aria-pressed={source === example.tex}
             onclick={() => (source = example.tex)}
           >
             {@html render(example.tex)}
           </button>
         {/each}
       </div>
-
-      <div class="actions">
-        <fieldset>
-          <legend class="hidden">Layout</legend>
-          <label class="mode" class:on={display}>
-            <input type="radio" name="mode" value={true} bind:group={display} />
-            <Typeset text="Display" />
-          </label>
-          <label class="mode" class:on={!display}>
-            <input type="radio" name="mode" value={false} bind:group={display} />
-            <Typeset text="Inline" />
-          </label>
-        </fieldset>
-        <button class="copy" type="button" disabled={empty} onclick={copyImage}>
-          <Typeset text={copyLabel('image', 'Copy image')} />
-        </button>
-        <button class="copy" type="button" disabled={empty} onclick={copySvg}>
-          <Typeset text={copyLabel('svg', 'Copy SVG')} />
-        </button>
-      </div>
-    </div>
-  </section>
-</main>
+    </section>
+  </main>
 </div>
-
-<style>
-  .page {
-    height: 100%;
-  }
-
-  main {
-    display: grid;
-    grid-template-rows: auto minmax(240px, 1fr) auto;
-    min-height: 100%;
-  }
-
-  header {
-    display: flex;
-    gap: var(--s3);
-    align-items: baseline;
-    padding: var(--s3) 0;
-  }
-
-  h1 {
-    flex: 1;
-    margin: 0;
-    font-size: 32px;
-    font-weight: inherit;
-    line-height: 1;
-  }
-
-  header p {
-    margin: 0;
-    font-size: 14px;
-    line-height: 1;
-    color: var(--quiet);
-    white-space: nowrap;
-  }
-
-  .full {
-    align-self: center;
-    padding: var(--s1) var(--s2);
-    border: 1px solid var(--ink);
-    color: inherit;
-    line-height: 1;
-    text-decoration: none;
-  }
-
-  .full:hover {
-    background: var(--ink);
-    color: var(--sheet);
-  }
-
-  .stage {
-    position: relative;
-  }
-
-  .sheet {
-    position: absolute;
-    inset: 0 0 auto;
-    display: flex;
-    overflow: auto;
-    padding: var(--s4);
-    border: 2px solid var(--ink);
-    background-color: var(--paper);
-    background-image:
-      linear-gradient(var(--rule-strong) 1px, transparent 1px),
-      linear-gradient(90deg, var(--rule-strong) 1px, transparent 1px),
-      linear-gradient(var(--rule) 1px, transparent 1px),
-      linear-gradient(90deg, var(--rule) 1px, transparent 1px);
-    background-size:
-      120px 120px,
-      120px 120px,
-      24px 24px,
-      24px 24px;
-    background-position: -1px -1px;
-  }
-
-  .formula {
-    margin: auto;
-    line-height: 1;
-  }
-
-  .stale {
-    color: var(--stale);
-  }
-
-  .hint {
-    font-size: 24px;
-    color: var(--green);
-  }
-
-  .desk {
-    display: grid;
-    gap: var(--s3);
-    padding: var(--s3) 0 var(--s4);
-  }
-
-  .source {
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: var(--s1) var(--s3);
-    align-items: center;
-  }
-
-  .problem {
-    height: var(--s5);
-    margin: 0;
-    line-height: var(--s5);
-    color: var(--red);
-    text-align: right;
-  }
-
-  textarea {
-    grid-column: 1 / -1;
-    width: 100%;
-    padding: var(--s2) var(--s3);
-    border: 2px solid var(--ink);
-    border-radius: 0;
-    background: var(--sheet);
-    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-    font-size: 16px;
-    line-height: 1.5;
-    resize: vertical;
-  }
-
-  .tools {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--s3) var(--s4);
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .examples {
-    display: flex;
-    flex: 1 1 480px;
-    flex-wrap: wrap;
-    gap: var(--s2);
-  }
-
-  .example {
-    display: flex;
-    align-items: center;
-    min-height: 48px;
-    padding: var(--s1) var(--s3);
-    border: 1px solid var(--rule-strong);
-    border-radius: 0;
-    background: transparent;
-    font-size: 15px;
-    cursor: pointer;
-  }
-
-  .example:hover {
-    border-color: var(--ink);
-    background: var(--sheet);
-  }
-
-  .example:active {
-    background: var(--rule);
-  }
-
-  .example.current {
-    border-color: var(--ink);
-    box-shadow: inset 0 -3px 0 var(--green);
-  }
-
-  .actions {
-    display: flex;
-    gap: var(--s3);
-    align-items: center;
-  }
-
-  fieldset {
-    display: flex;
-    margin: 0;
-    padding: 0;
-    border: 2px solid var(--ink);
-  }
-
-  .mode {
-    position: relative;
-    display: flex;
-    align-items: center;
-    min-height: 44px;
-    padding: 0 var(--s3);
-    cursor: pointer;
-  }
-
-  .mode:hover {
-    background: var(--sheet);
-  }
-
-  .mode.on {
-    background: var(--ink);
-    color: var(--sheet);
-  }
-
-  .mode input {
-    position: absolute;
-    inset: 0;
-    margin: 0;
-    opacity: 0;
-    cursor: pointer;
-  }
-
-  .mode:has(input:focus-visible) {
-    outline: 3px solid var(--green);
-    outline-offset: 2px;
-  }
-
-  .copy {
-    min-width: 136px;
-    min-height: 48px;
-    margin-bottom: var(--s1);
-    padding: 0 var(--s4);
-    border: 0;
-    border-radius: 0;
-    background: var(--green);
-    box-shadow: 0 var(--s1) 0 var(--green-deep);
-    color: var(--sheet);
-    cursor: pointer;
-  }
-
-  .copy:hover {
-    background: var(--green-deep);
-    box-shadow: 0 var(--s1) 0 var(--ink);
-  }
-
-  .copy:active {
-    box-shadow: none;
-    transform: translateY(var(--s1));
-  }
-
-  .copy:disabled {
-    background: var(--stale);
-    box-shadow: none;
-    cursor: not-allowed;
-  }
-
-  @media (max-width: 640px) {
-    .tools {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .examples {
-      flex-basis: auto;
-    }
-
-    .actions {
-      flex-wrap: wrap;
-      justify-content: space-between;
-    }
-
-    .copy {
-      flex: 1;
-    }
-  }
-</style>

@@ -1,6 +1,9 @@
 <script lang="ts">
   import { untrack } from 'svelte'
   import { documentPage } from '../../wasm-core/js/quicktex.js'
+  import Icon from '../lib/Icon.svelte'
+  import Typeset from '../lib/Typeset.svelte'
+  import { minus, plus } from '../lib/icons'
 
   let { count, version }: { count: number; version: number } = $props()
 
@@ -37,6 +40,10 @@
     })
   })
 
+  const percent = $derived(Math.round(steps[step] * 100))
+  const zoomButton =
+    'flex w-10 items-center justify-center hover:bg-rule active:bg-rule-strong disabled:cursor-not-allowed disabled:bg-transparent disabled:text-stale'
+
   function watch(node: HTMLElement, page: number) {
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -45,24 +52,19 @@
         else next.delete(page)
         visible = next
       },
-      { root: node.closest('.scroll'), rootMargin: '600px' },
+      { root: node.closest('[data-scroller]'), rootMargin: '600px' },
     )
     observer.observe(node)
     return { destroy: () => observer.disconnect() }
   }
 </script>
 
-<div class="pages">
-  <div class="zoom">
-    <button type="button" aria-label="Zoom out" disabled={step === 0} onclick={() => step--}>−</button>
-    <button type="button" class="level" aria-label="Reset zoom" onclick={() => (step = 3)}>{Math.round(steps[step] * 100)}%</button>
-    <button type="button" aria-label="Zoom in" disabled={step === steps.length - 1} onclick={() => step++}>+</button>
-  </div>
-  <div class="scroll" bind:clientWidth={width}>
-    <div class="sheets" style:font-size="{size}px">
+<div class="relative h-full min-h-0 bg-well">
+  <div class="h-full overflow-auto" data-scroller bind:clientWidth={width}>
+    <div class="flex w-max min-w-full flex-col items-center gap-6 p-6 leading-none" style:font-size="{size}px">
       {#each { length: count }, page (page)}
         <article
-          class="page"
+          class="flex-none bg-white text-black ring-1 ring-rule-strong [&_svg]:block"
           aria-label="Page {page + 1} of {count}"
           style:width="{pageWidth}em"
           style:height="{pageHeight}em"
@@ -73,74 +75,20 @@
       {/each}
     </div>
   </div>
+  <div class="absolute right-4 bottom-4 z-10 flex h-10 overflow-hidden rounded-control border border-rule-strong bg-sheet">
+    <button class={zoomButton} type="button" aria-label="Zoom out" disabled={step === 0} onclick={() => step--}>
+      <Icon icon={minus} />
+    </button>
+    <button
+      class="min-w-16 border-x border-rule px-2 hover:bg-rule active:bg-rule-strong"
+      type="button"
+      aria-label="Reset zoom"
+      onclick={() => (step = 3)}
+    >
+      <Typeset text="{percent}%" tex={`\\text{${percent}\\%}`} />
+    </button>
+    <button class={zoomButton} type="button" aria-label="Zoom in" disabled={step === steps.length - 1} onclick={() => step++}>
+      <Icon icon={plus} />
+    </button>
+  </div>
 </div>
-
-<style>
-  .pages {
-    position: relative;
-    height: 100%;
-    min-height: 0;
-    background: var(--rule);
-  }
-
-  .scroll {
-    height: 100%;
-    overflow: auto;
-  }
-
-  .sheets {
-    display: flex;
-    flex-direction: column;
-    gap: var(--s4);
-    align-items: center;
-    width: max-content;
-    min-width: 100%;
-    padding: var(--s4);
-    line-height: 0;
-  }
-
-  .page {
-    flex: none;
-    border: 1px solid var(--rule-strong);
-    background: #fff;
-    color: #000;
-  }
-
-  .page :global(svg) {
-    display: block;
-  }
-
-  .zoom {
-    position: absolute;
-    z-index: 1;
-    right: var(--s3);
-    bottom: var(--s3);
-    display: flex;
-    border: 2px solid var(--ink);
-    background: var(--sheet);
-  }
-
-  .zoom button {
-    min-width: 36px;
-    height: 36px;
-    padding: 0 var(--s1);
-    border: 0;
-    background: transparent;
-    font-size: 15px;
-    cursor: pointer;
-  }
-
-  .zoom button:hover:enabled {
-    background: var(--rule);
-  }
-
-  .zoom button:disabled {
-    color: var(--stale);
-    cursor: not-allowed;
-  }
-
-  .zoom .level {
-    min-width: 56px;
-    border-inline: 1px solid var(--rule-strong);
-  }
-</style>

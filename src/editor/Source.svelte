@@ -3,7 +3,6 @@
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
   import {
     bracketMatching,
-    defaultHighlightStyle,
     HighlightStyle,
     StreamLanguage,
     syntaxHighlighting,
@@ -59,30 +58,65 @@
     provide: (field) => EditorView.decorations.from(field),
   })
 
+  const tint = (color: string, amount: number) => `color-mix(in srgb, var(--color-${color}) ${amount}%, transparent)`
+
   const palette = HighlightStyle.define([
-    { tag: [tags.tagName, tags.keyword], color: 'var(--green)' },
-    { tag: tags.comment, color: 'var(--quiet)' },
-    { tag: [tags.bracket, tags.punctuation], color: 'var(--quiet)' },
-    { tag: [tags.atom, tags.number], color: 'var(--code-number)' },
-    { tag: [tags.string, tags.meta], color: 'var(--code-structure)' },
+    { tag: [tags.tagName, tags.keyword], color: 'var(--color-green)' },
+    { tag: tags.comment, color: 'var(--color-quiet)', fontStyle: 'italic' },
+    { tag: [tags.bracket, tags.punctuation], color: 'var(--color-quiet)' },
+    { tag: [tags.atom, tags.number], color: 'var(--color-code-number)' },
+    { tag: [tags.string, tags.meta], color: 'var(--color-code-structure)' },
   ])
 
   const theme = EditorView.theme({
-    '&': { height: '100%', backgroundColor: 'var(--sheet)', color: 'var(--ink)', fontSize: '15px' },
+    '&': { height: '100%', backgroundColor: 'var(--color-sheet)', color: 'var(--color-ink)', fontSize: '15px' },
     '&.cm-focused': { outline: 'none' },
-    '.cm-scroller': { fontFamily: "ui-monospace, 'SF Mono', Menlo, Consolas, monospace", lineHeight: '24px' },
-    '.cm-content': { caretColor: 'var(--ink)', padding: '8px 0' },
-    '.cm-cursor': { borderLeftColor: 'var(--ink)', borderLeftWidth: '2px' },
-    '.cm-gutters': { backgroundColor: 'var(--paper)', color: 'var(--quiet)', border: 'none', borderRight: '1px solid var(--rule-strong)' },
-    '.cm-activeLine': { backgroundColor: 'rgb(27 94 68 / 6%)' },
-    '.cm-activeLineGutter': { backgroundColor: 'var(--rule)', color: 'var(--ink)' },
-    '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': { backgroundColor: 'rgb(27 94 68 / 22%)' },
-    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': { backgroundColor: 'var(--rule-strong)', color: 'var(--ink)' },
-    '.cm-selectionMatch': { backgroundColor: 'var(--rule)' },
-    '.cm-errorLine': { backgroundColor: 'rgb(169 30 20 / 7%)' },
-    '.cm-errorMark': { backgroundColor: 'rgb(169 30 20 / 16%)', boxShadow: 'inset 0 -2px var(--red)' },
-    '.cm-panels': { backgroundColor: 'var(--paper)', color: 'var(--ink)', borderColor: 'var(--ink)' },
-    '.cm-textfield, .cm-button': { borderRadius: '0', backgroundImage: 'none' },
+    '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '24px' },
+    '.cm-content': { caretColor: 'var(--color-ink)', padding: '8px 0' },
+    '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--color-ink)', borderLeftWidth: '2px' },
+    '.cm-gutters': {
+      backgroundColor: 'var(--color-paper)',
+      color: 'var(--color-quiet)',
+      border: 'none',
+      borderRight: '1px solid var(--color-rule)',
+    },
+    '.cm-activeLine': { backgroundColor: tint('green', 8) },
+    '.cm-activeLineGutter': { backgroundColor: 'var(--color-rule)', color: 'var(--color-ink)' },
+    '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
+      backgroundColor: tint('green', 28),
+    },
+    '.cm-matchingBracket, &.cm-focused .cm-matchingBracket': {
+      backgroundColor: 'var(--color-rule-strong)',
+      color: 'var(--color-ink)',
+    },
+    '.cm-nonmatchingBracket, &.cm-focused .cm-nonmatchingBracket': { backgroundColor: tint('red', 24), color: 'var(--color-ink)' },
+    '.cm-selectionMatch': { backgroundColor: 'var(--color-rule)' },
+    '.cm-searchMatch': { backgroundColor: tint('code-number', 28), outline: 'none' },
+    '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: tint('code-number', 56) },
+    '.cm-errorLine': { backgroundColor: tint('red', 10) },
+    '.cm-errorMark': { backgroundColor: tint('red', 20), boxShadow: 'inset 0 -2px var(--color-red)' },
+    '.cm-panels': { backgroundColor: 'var(--color-paper)', color: 'var(--color-ink)' },
+    '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--color-rule-strong)' },
+    '.cm-panel.cm-search': { padding: '8px 16px', fontFamily: 'var(--font-serif)', fontSize: '14px' },
+    '.cm-panel.cm-search label': { color: 'var(--color-quiet)', fontSize: '14px' },
+    '.cm-panel.cm-search input[type=checkbox]': { accentColor: 'var(--color-green)' },
+    '.cm-panel.cm-search [name=close]': { color: 'var(--color-ink)', fontSize: '20px', top: '8px', right: '16px' },
+    '.cm-textfield': {
+      backgroundColor: 'var(--color-sheet)',
+      border: '1px solid var(--color-rule-strong)',
+      borderRadius: 'var(--radius-control)',
+      color: 'var(--color-ink)',
+      fontSize: '14px',
+    },
+    '.cm-button, .cm-button:active': {
+      backgroundColor: 'var(--color-sheet)',
+      backgroundImage: 'none',
+      border: '1px solid var(--color-rule-strong)',
+      borderRadius: 'var(--radius-control)',
+      color: 'var(--color-ink)',
+      fontSize: '14px',
+    },
+    '.cm-button:hover': { borderColor: 'var(--color-ink)', backgroundColor: 'var(--color-paper)' },
   })
 
   function closeEnvironment(target: EditorView) {
@@ -124,8 +158,17 @@
           EditorView.lineWrapping,
           StreamLanguage.define(stex),
           EditorState.languageData.of(() => [{ closeBrackets: { brackets: ['{'] } }]),
+          EditorState.phrases.of({
+            next: 'Next',
+            previous: 'Previous',
+            all: 'All',
+            'match case': 'Match case',
+            regexp: 'Regex',
+            'by word': 'Whole word',
+            replace: 'Replace',
+            'replace all': 'Replace all',
+          }),
           syntaxHighlighting(palette),
-          syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           theme,
           errorMark,
           Prec.high(keymap.of([{ key: 'Enter', run: closeEnvironment }])),
@@ -155,12 +198,4 @@
   }
 </script>
 
-<div class="source" bind:this={host}></div>
-
-<style>
-  .source {
-    height: 100%;
-    min-height: 0;
-    overflow: hidden;
-  }
-</style>
+<div class="h-full min-h-0 overflow-hidden" bind:this={host}></div>

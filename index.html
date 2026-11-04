@@ -4,6 +4,13 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#e9f2df" />
+    <script>
+      try {
+        var theme = localStorage.getItem('quicktex-theme')
+      } catch {}
+      document.documentElement.classList.toggle('dark', theme ? theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches)
+    </script>
     <link rel="preload" as="fetch" type="application/wasm" crossorigin href="/wasm-core/js/quicktex.wasm" />
     <title>quicktex</title>
   </head>

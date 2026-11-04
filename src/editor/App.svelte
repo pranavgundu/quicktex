@@ -1,5 +1,11 @@
 <script lang="ts">
   import { documentPdf, QuicktexError, renderDocument } from '../../wasm-core/js/quicktex.js'
+  import Button from '../lib/Button.svelte'
+  import Icon from '../lib/Icon.svelte'
+  import Segmented from '../lib/Segmented.svelte'
+  import ThemeToggle from '../lib/ThemeToggle.svelte'
+  import Typeset from '../lib/Typeset.svelte'
+  import { back, download as downloadIcon, warning } from '../lib/icons'
   import { charIndex } from '../lib/latex'
   import Pages from './Pages.svelte'
   import Source from './Source.svelte'
@@ -98,215 +104,72 @@
   }
 </script>
 
-<div class="shell">
-  <header>
-    <a class="home" href="../">quicktex</a>
-    <p class="status">
-      {pages} {pages === 1 ? 'page' : 'pages'}, {elapsed} ms
-    </p>
-    <div class="switch">
-      <button type="button" class:on={showing === 'source'} onclick={() => (showing = 'source')}>Source</button>
-      <button type="button" class:on={showing === 'pages'} onclick={() => (showing = 'pages')}>Pages</button>
+<div class="grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]">
+  <header class="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-rule-strong px-4 py-2">
+    <div class="flex-1">
+      <a
+        class="inline-flex items-center gap-2 rounded-control text-[24px] leading-none text-ink hover:text-green"
+        href="../"
+        aria-label="Back to the formula page"
+      >
+        <Icon icon={back} />
+        <Typeset text="quicktex" tex={String.raw`\textbf{quicktex}`} />
+      </a>
     </div>
-    <button class="download" type="button" disabled={pages === 0} onclick={download}>Download PDF</button>
+    <ThemeToggle />
+    <Button primary disabled={pages === 0} icon={downloadIcon} label="Download PDF" short="PDF" onclick={download} />
+    <Segmented
+      class="order-last basis-full md:hidden"
+      legend="View"
+      name="view"
+      bind:value={showing}
+      options={[
+        { value: 'source', label: 'Source' },
+        { value: 'pages', label: 'Pages' },
+      ]}
+    />
   </header>
 
-  <main class="workspace" class:reading={showing === 'pages'} style:--split="{split}%" bind:this={workspace}>
-    <section class="pane write" aria-label="LaTeX source">
-      <div class="editor"><Source bind:this={editor} bind:value={source} errorAt={problemAt} /></div>
-      <div class="notice" role="status">
+  <main
+    class="grid min-h-0 grid-cols-[minmax(0,1fr)] md:grid-cols-[minmax(0,var(--split))_8px_minmax(0,1fr)]"
+    style:--split="{split}%"
+    bind:this={workspace}
+  >
+    <section
+      class={['grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_40px]', showing === 'pages' && 'max-md:hidden']}
+      aria-label="LaTeX source"
+    >
+      <div class="min-h-0"><Source bind:this={editor} bind:value={source} errorAt={problemAt} /></div>
+      <div class="flex min-w-0 items-center border-t border-rule-strong bg-paper text-sm text-quiet" role="status">
         {#if problem}
-          <button class="problem" type="button" onclick={() => problemAt !== null && editor.reveal(problemAt)}>{problem}</button>
+          <button
+            class="flex size-full items-center gap-2 bg-sheet px-4 text-left text-red shadow-[inset_0_2px_0_var(--color-red)] hover:bg-paper"
+            type="button"
+            onclick={() => problemAt !== null && editor.reveal(problemAt)}
+          >
+            <Icon icon={warning} />
+            <span class="min-w-0 flex-1 truncate"><Typeset text={problem} /></span>
+            {#if pages > 0}
+              <span class="shrink-0 text-quiet max-lg:hidden"><Typeset text="Pages show the last good version" /></span>
+            {/if}
+          </button>
+        {:else}
+          <p class="px-4"><Typeset text={`${pages} ${pages === 1 ? 'page' : 'pages'}, ${elapsed} ms`} /></p>
         {/if}
       </div>
     </section>
     <button
-      class="handle"
+      class="cursor-col-resize touch-none border-x border-rule-strong bg-paper hover:bg-rule-strong max-md:hidden"
       type="button"
       aria-label="Resize panes, use the left and right arrow keys"
       onpointerdown={resize}
       onkeydown={nudge}
     ></button>
-    <section class="pane read" class:stale={problem !== ''} aria-label="Pages">
+    <section
+      class={['min-h-0 min-w-0', showing === 'source' && 'max-md:hidden']}
+      aria-label="Pages"
+    >
       <Pages count={pages} {version} />
     </section>
   </main>
 </div>
-
-<style>
-  .shell {
-    display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    grid-template-columns: minmax(0, 1fr);
-    height: 100%;
-    font-size: 15px;
-  }
-
-  header {
-    display: flex;
-    gap: var(--s3);
-    align-items: center;
-    padding: var(--s2) var(--s3);
-    border-bottom: 2px solid var(--ink);
-  }
-
-  .home {
-    color: inherit;
-    font-size: 20px;
-    font-weight: 700;
-    text-decoration: none;
-  }
-
-  .home:hover {
-    color: var(--green);
-  }
-
-  .status {
-    flex: 1;
-    margin: 0;
-    color: var(--quiet);
-    font-size: 14px;
-    white-space: nowrap;
-  }
-
-  .switch {
-    display: none;
-    border: 2px solid var(--ink);
-  }
-
-  .switch button {
-    min-height: 36px;
-    padding: 0 var(--s2);
-    border: 0;
-    background: transparent;
-    cursor: pointer;
-  }
-
-  .switch .on {
-    background: var(--ink);
-    color: var(--sheet);
-  }
-
-  .download {
-    min-height: 40px;
-    padding: 0 var(--s3);
-    border: 0;
-    background: var(--green);
-    box-shadow: 0 var(--s1) 0 var(--green-deep);
-    color: var(--sheet);
-    cursor: pointer;
-  }
-
-  .download:hover:enabled {
-    background: var(--green-deep);
-    box-shadow: 0 var(--s1) 0 var(--ink);
-  }
-
-  .download:active:enabled {
-    box-shadow: none;
-    transform: translateY(var(--s1));
-  }
-
-  .download:disabled {
-    background: var(--stale);
-    box-shadow: none;
-    cursor: not-allowed;
-  }
-
-  .workspace {
-    display: grid;
-    grid-template-columns: minmax(0, var(--split)) 8px minmax(0, 1fr);
-    min-height: 0;
-  }
-
-  .pane {
-    min-width: 0;
-    min-height: 0;
-  }
-
-  .write {
-    display: grid;
-    grid-template-rows: minmax(0, 1fr) 40px;
-  }
-
-  .editor {
-    min-height: 0;
-  }
-
-  .notice {
-    min-width: 0;
-    border-top: 1px solid var(--rule-strong);
-    background: var(--paper);
-  }
-
-  .problem {
-    width: 100%;
-    height: 100%;
-    padding: 0 var(--s3);
-    overflow: hidden;
-    border: 0;
-    box-shadow: inset 0 2px var(--red);
-    background: var(--sheet);
-    color: var(--red);
-    text-align: left;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    cursor: pointer;
-  }
-
-  .problem:hover {
-    background: var(--paper);
-  }
-
-  .handle {
-    padding: 0;
-    border: 0;
-    border-inline: 1px solid var(--ink);
-    background: var(--paper);
-    cursor: col-resize;
-    touch-action: none;
-  }
-
-  .handle:hover {
-    background: var(--rule-strong);
-  }
-
-  .stale {
-    opacity: 0.6;
-  }
-
-  @media (max-width: 760px) {
-    header {
-      flex-wrap: wrap;
-      gap: var(--s2) var(--s3);
-    }
-
-    .home {
-      flex: 1;
-    }
-
-    .status {
-      display: none;
-    }
-
-    .switch {
-      display: flex;
-      flex-basis: 100%;
-      order: 1;
-    }
-
-    .switch button {
-      flex: 1;
-    }
-
-    .workspace {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .handle,
-    .workspace.reading .write,
-    .workspace:not(.reading) .read {
-      display: none;
-    }
-  }
-</style>
