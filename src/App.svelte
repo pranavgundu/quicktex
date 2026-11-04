@@ -16,6 +16,8 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
 \ce{2H2 + O2 -> 2H2O}` },
   ]
 
+  const cell = 24
+  const frame = 2
   const stagePadding = 48
   const timingDelay = 150
 
@@ -25,12 +27,22 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
   let problem = $state('')
   let micros = $state(0)
   let notice = $state({ target: '', text: '' })
-  let stageWidth = $state(0)
+  let pageWidth = $state(0)
   let stageHeight = $state(0)
   let copyTimer = 0
   let timed = false
 
   const empty = $derived(source.trim() === '')
+
+  function wholeCells(space: number) {
+    return Math.max(Math.floor((space - 2 * frame + 1) / cell), 1) * cell - 1
+  }
+
+  const gutter = $derived(pageWidth <= 640 ? 16 : 24)
+  const sheetWidth = $derived(wholeCells(pageWidth - 2 * gutter))
+  const sheetHeight = $derived(wholeCells(stageHeight))
+  const columnWidth = $derived(sheetWidth + 2 * frame)
+  const columnLeft = $derived(Math.floor((pageWidth - columnWidth) / 2))
 
   function time(tex: string, mode: boolean) {
     const start = performance.now()
@@ -68,15 +80,15 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
 
   const fit = $derived.by(() => {
     const size = /width="([\d.]+)em" height="([\d.]+)em"/.exec(svg)
-    if (!size || !stageWidth) return 48
-    const across = (stageWidth - stagePadding) / Math.max(Number(size[1]), 0.1)
-    const down = (stageHeight - stagePadding) / Math.max(Number(size[2]), 0.1)
+    if (!size || !pageWidth) return 48
+    const across = (sheetWidth - stagePadding) / Math.max(Number(size[1]), 0.1)
+    const down = (sheetHeight - stagePadding) / Math.max(Number(size[2]), 0.1)
     return Math.max(16, Math.min(64, across, down))
   })
 
   const slow = $derived(micros >= 1000)
   const amount = $derived(slow ? (micros / 1000).toFixed(1) : micros.toFixed(micros < 10 ? 1 : 0))
-  const weight = $derived(`${(svg.length / 1024).toFixed(1)} KB of SVG`)
+  const weight = $derived(`${(svg.length / 1024).toFixed(1)} KB`)
 
   function copyLabel(target: string, idle: string) {
     return notice.target === target ? notice.text : idle
@@ -99,31 +111,33 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
     copy('image', () => navigator.clipboard.write([new ClipboardItem({ 'image/png': svgToPng(svg) })]))
 </script>
 
-<main>
+<div class="page" bind:clientWidth={pageWidth}>
+<main style:width="{columnWidth}px" style:margin-left="{columnLeft}px">
   <header>
     <h1><Typeset text="quicktex" tex={String.raw`\textbf{quicktex}`} /></h1>
     <p>
       <Typeset
         text={`Rendered in ${amount} ${slow ? 'ms' : 'µs'}`}
-        tex={`\\text{Rendered in ${amount} }${slow ? '\\text{ms}' : '\\mu\\text{s}'}`}
+        tex={`\\text{${amount} }${slow ? '\\text{ms}' : '\\mu\\text{s}'}`}
       />
     </p>
-    <p><Typeset text={weight} /></p>
+    <p><Typeset text={`${weight} of SVG`} tex={`\\text{${weight}}`} /></p>
   </header>
 
-  <section
-    class="stage"
-    class:stale={problem !== ''}
-    aria-label="Rendered formula"
-    bind:clientWidth={stageWidth}
-    bind:clientHeight={stageHeight}
-  >
-    {#if empty}
-      <div class="formula hint"><Typeset text="Type LaTeX below and it appears here" /></div>
-    {:else}
-      <div class="formula" style:font-size="{fit}px">{@html svg}</div>
-    {/if}
-  </section>
+  <div class="stage" bind:clientHeight={stageHeight}>
+    <section
+      class="sheet"
+      class:stale={problem !== ''}
+      aria-label="Rendered formula"
+      style:height="{sheetHeight + 2 * frame}px"
+    >
+      {#if empty}
+        <div class="formula hint"><Typeset text="Type LaTeX below and it appears here" /></div>
+      {:else}
+        <div class="formula" style:font-size="{fit}px">{@html svg}</div>
+      {/if}
+    </section>
+  </div>
 
   <section class="desk">
     <div class="source">
@@ -178,44 +192,51 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
     </div>
   </section>
 </main>
+</div>
 
 <style>
+  .page {
+    min-height: 100%;
+    display: grid;
+  }
+
   main {
     display: grid;
     grid-template-rows: auto minmax(240px, 1fr) auto;
-    min-height: 100%;
   }
 
   header {
     display: flex;
-    border-bottom: 2px solid var(--ink);
-    background: var(--paper);
-  }
-
-  h1,
-  header p {
-    display: flex;
-    align-items: center;
-    margin: 0;
-    padding: var(--s3) var(--s4);
-    font-weight: inherit;
+    gap: var(--s3);
+    align-items: baseline;
+    padding: var(--s3) 0;
   }
 
   h1 {
     flex: 1;
+    margin: 0;
     font-size: 32px;
+    font-weight: inherit;
     line-height: 1;
   }
 
   header p {
-    border-left: 1px solid var(--rule-strong);
+    margin: 0;
+    font-size: 14px;
+    line-height: 1;
+    color: var(--quiet);
     white-space: nowrap;
   }
 
   .stage {
+    min-height: 0;
+  }
+
+  .sheet {
     display: flex;
     overflow: auto;
     padding: var(--s4);
+    border: 2px solid var(--ink);
     background-color: var(--paper);
     background-image:
       linear-gradient(var(--rule-strong) 1px, transparent 1px),
@@ -247,9 +268,7 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
   .desk {
     display: grid;
     gap: var(--s3);
-    padding: var(--s3) var(--s4) var(--s4);
-    border-top: 2px solid var(--ink);
-    background: var(--paper);
+    padding: var(--s3) 0 var(--s4);
   }
 
   .source {
@@ -395,30 +414,6 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
   }
 
   @media (max-width: 640px) {
-    header {
-      flex-wrap: wrap;
-    }
-
-    h1 {
-      flex-basis: 100%;
-      padding: var(--s3);
-      border-bottom: 1px solid var(--rule-strong);
-    }
-
-    header p {
-      flex: 1;
-      padding: var(--s2) var(--s3);
-      font-size: 16px;
-    }
-
-    header p:first-of-type {
-      border-left: 0;
-    }
-
-    .desk {
-      padding: var(--s3);
-    }
-
     .tools {
       flex-direction: column;
       align-items: stretch;
