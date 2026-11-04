@@ -7,27 +7,18 @@
   import { check, code, edit, image } from './lib/icons'
   import { charIndex } from './lib/latex'
   import { svgToPng } from './lib/png'
+  import { remember, remembered } from './lib/storage'
 
-  const examples = [
-    { name: 'Gaussian integral', tex: String.raw`\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}` },
-    { name: 'Quadratic formula', tex: String.raw`x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}` },
-    { name: 'Basel problem', tex: String.raw`\sum_{n=1}^{\infty} \frac{1}{n^2} = \frac{\pi^2}{6}` },
-    { name: 'Euler identity', tex: String.raw`e^{i\pi} + 1 = 0` },
-    { name: 'Rotation matrix', tex: String.raw`\begin{pmatrix} \cos\theta & -\sin\theta \\ \sin\theta & \cos\theta \end{pmatrix}` },
-    { name: 'Absolute value', tex: String.raw`|x| = \begin{cases} x & x \ge 0 \\ -x & x < 0 \end{cases}` },
-    { name: 'Schrödinger equation, physics package', tex: String.raw`\usepackage{physics}
-i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
-    { name: 'Combustion of hydrogen, mhchem package', tex: String.raw`\usepackage{mhchem}
-\ce{2H2 + O2 -> 2H2O}` },
-  ]
+  const layoutKey = 'quicktex-layout'
+  const firstFormula = String.raw`\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}`
 
   const cell = 24
   const frame = 1
   const stagePadding = 48
   const timingDelay = 150
 
-  let source = $state(examples[0].tex)
-  let layout = $state<'display' | 'inline'>('display')
+  let source = $state(firstFormula)
+  let layout = $state<'display' | 'inline'>(remembered(layoutKey) === 'inline' ? 'inline' : 'display')
   let svg = $state('')
   let problem = $state('')
   let micros = $state(0)
@@ -62,6 +53,8 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
     } while (elapsed < 2)
     return (elapsed * 1000) / runs
   }
+
+  $effect(() => remember(layoutKey, layout))
 
   $effect(() => {
     const tex = source
@@ -162,7 +155,7 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
       </section>
     </div>
 
-    <section class="grid gap-4 pt-4 pb-6" style:translate="0 -{spare}px">
+    <section class="pt-4 pb-6" style:translate="0 -{spare}px">
       <div class="rounded-control border border-rule-strong bg-sheet focus-within:border-green">
         <label class="sr-only" for="source">LaTeX source</label>
         <textarea
@@ -204,23 +197,6 @@ i\hbar\pdv{t}\ket{\psi} = \hat{H}\ket{\psi}` },
             onclick={copySvg}
           />
         </div>
-      </div>
-
-      <div class="flex flex-wrap gap-2">
-        {#each examples as example (example.name)}
-          <button
-            class={[
-              'flex min-h-12 items-center rounded-control border px-4 py-1 hover:border-ink hover:bg-sheet active:bg-rule',
-              source === example.tex ? 'border-ink bg-sheet' : 'border-rule-strong',
-            ]}
-            type="button"
-            aria-label={example.name}
-            aria-pressed={source === example.tex}
-            onclick={() => (source = example.tex)}
-          >
-            {@html render(example.tex)}
-          </button>
-        {/each}
       </div>
     </section>
   </main>

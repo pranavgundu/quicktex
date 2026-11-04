@@ -45,6 +45,23 @@ fn milli(out: &mut Vec<u8>, v: i32) {
     }
 }
 
+fn rgb(out: &mut Vec<u8>, color: u32, op: &[u8]) {
+    for shift in [16, 8, 0] {
+        milli(out, ((color >> shift) & 255) as i32 * 1000 / 255);
+        out.push(b' ');
+    }
+    out.extend_from_slice(op);
+    out.push(b'\n');
+}
+
+fn hex(out: &mut Vec<u8>, color: u32) {
+    let digits = b"0123456789abcdef";
+    out.push(b'#');
+    for i in (0..6).rev() {
+        out.push(digits[((color >> (i * 4)) & 15) as usize]);
+    }
+}
+
 fn ints(out: &mut Vec<u8>, values: &[i32], op: &[u8]) {
     for v in values {
         int(out, *v);
@@ -186,7 +203,7 @@ impl Engine {
         color_value(&self.laid.color_bytes[o as usize..(o + l) as usize])
     }
 
-    fn page_stream(&self, b: &mut Vec<u8>, s: usize, e: usize, forms: &[u32]) {
+    fn page_stream(&self, b: &mut Vec<u8>, s: usize, e: usize, art: (usize, usize), forms: &[u32]) {
         b.clear();
         milli(b, self.laid.pt);
         b.extend_from_slice(b" 0 0 ");
@@ -195,10 +212,84 @@ impl Engine {
         milli(b, self.laid.h * self.laid.pt);
         b.extend_from_slice(b" cm\n");
         let mut color = (0, 0, 0);
-        for it in &self.laid.items[s..e] {
+        for i in art.0..art.1 {
+            let a = self.laid.art[i];
+            self.art_stream(b, &a, forms);
+        }
+        self.item_stream(b, &self.laid.items[s..e], forms, &mut color);
+    }
+
+    fn art_stream(&self, b: &mut Vec<u8>, a: &document::Art, forms: &[u32]) {
+        b.extend_from_slice(b"q\n");
+        if a.text {
+            milli(b, a.cos);
+            b.push(b' ');
+            milli(b, a.sin);
+            b.push(b' ');
+            milli(b, -a.sin);
+            b.push(b' ');
+            milli(b, a.cos);
+            b.push(b' ');
+            int(b, a.x);
+            b.push(b' ');
+            int(b, a.y);
+            b.extend_from_slice(b" cm\n");
+            let mut color = (0, 0, 0);
+            self.item_stream(b, &self.laid.spun[a.s as usize..a.e as usize], forms, &mut color);
+            b.extend_from_slice(b"Q\n");
+            return;
+        }
+        let stroked = a.stroke != document::NO_COLOR;
+        let filled = a.fill != document::NO_COLOR;
+        if stroked {
+            rgb(b, a.stroke, b"RG");
+            int(b, a.width);
+            b.extend_from_slice(b" w\n");
+            if a.round {
+                b.extend_from_slice(b"1 J 1 j\n");
+            }
+            if a.dash.0 > 0 {
+                b.push(b'[');
+                int(b, a.dash.0);
+                b.push(b' ');
+                int(b, a.dash.1);
+                b.extend_from_slice(b"] 0 d\n");
+            }
+        }
+        if filled {
+            rgb(b, a.fill, b"rg");
+        }
+        let segs = &self.laid.segs[a.s as usize..a.e as usize];
+        let mut i = 0;
+        while i < segs.len() {
+            let g = segs[i];
+            let (x, y) = (g.x + a.x, g.y + a.y);
+            match g.op {
+                document::SEG_MOVE => ints(b, &[x, y], b"m"),
+                document::SEG_LINE => ints(b, &[x, y], b"l"),
+                document::SEG_CURVE if i + 2 < segs.len() => {
+                    let (p, q) = (segs[i + 1], segs[i + 2]);
+                    ints(b, &[x, y, p.x + a.x, p.y + a.y, q.x + a.x, q.y + a.y], b"c");
+                    i += 2;
+                }
+                document::SEG_CLOSE => b.extend_from_slice(b"h\n"),
+                _ => {}
+            }
+            i += 1;
+        }
+        b.extend_from_slice(match (stroked, filled) {
+            (true, true) => b"B\nQ\n",
+            (true, false) => b"S\nQ\n",
+            (false, true) => b"f\nQ\n",
+            _ => b"n\nQ\n",
+        });
+    }
+
+    fn item_stream(&self, b: &mut Vec<u8>, items: &[Item], forms: &[u32], color: &mut (i32, i32, i32)) {
+        for it in items {
             let next = self.group_color(it.g);
-            if next != color {
-                color = next;
+            if next != *color {
+                *color = next;
                 milli(b, color.0);
                 b.push(b' ');
                 milli(b, color.1);
@@ -268,6 +359,87 @@ impl Engine {
         self.out.extend_from_slice(b"\nendstream\nendobj\n");
     }
 
+    pub(super) fn art_svg(&mut self, from: usize, to: usize) {
+        let mut out = core::mem::take(&mut self.art);
+        out.clear();
+        for i in from..to {
+            let a = self.laid.art[i];
+            if a.text {
+                out.extend_from_slice(b"<g transform=\"matrix(");
+                milli(&mut out, a.cos);
+                out.push(b' ');
+                milli(&mut out, a.sin);
+                out.push(b' ');
+                milli(&mut out, -a.sin);
+                out.push(b' ');
+                milli(&mut out, a.cos);
+                out.push(b' ');
+                int(&mut out, a.x);
+                out.push(b' ');
+                int(&mut out, a.y);
+                out.extend_from_slice(b")\">");
+                self.text_paths(&self.laid.spun[a.s as usize..a.e as usize], &mut out);
+                out.extend_from_slice(b"</g>");
+                continue;
+            }
+            out.extend_from_slice(b"<path d=\"");
+            let segs = &self.laid.segs[a.s as usize..a.e as usize];
+            let mut k = 0;
+            while k < segs.len() {
+                let g = segs[k];
+                let (x, y) = (g.x + a.x, g.y + a.y);
+                match g.op {
+                    document::SEG_MOVE | document::SEG_LINE => {
+                        out.push(if g.op == document::SEG_MOVE { b'M' } else { b'L' });
+                        int(&mut out, x);
+                        out.push(b' ');
+                        int(&mut out, y);
+                    }
+                    document::SEG_CURVE if k + 2 < segs.len() => {
+                        let (p, q) = (segs[k + 1], segs[k + 2]);
+                        out.push(b'C');
+                        for (i, v) in [x, y, p.x + a.x, p.y + a.y, q.x + a.x, q.y + a.y].iter().enumerate() {
+                            if i > 0 {
+                                out.push(b' ');
+                            }
+                            int(&mut out, *v);
+                        }
+                        k += 2;
+                    }
+                    document::SEG_CLOSE => out.push(b'Z'),
+                    _ => {}
+                }
+                k += 1;
+            }
+            out.extend_from_slice(b"\" fill=\"");
+            if a.fill == document::NO_COLOR {
+                out.extend_from_slice(b"none");
+            } else {
+                hex(&mut out, a.fill);
+            }
+            out.push(b'"');
+            if a.stroke != document::NO_COLOR {
+                out.extend_from_slice(b" stroke=\"");
+                hex(&mut out, a.stroke);
+                out.extend_from_slice(b"\" stroke-width=\"");
+                int(&mut out, a.width);
+                out.push(b'"');
+                if a.dash.0 > 0 {
+                    out.extend_from_slice(b" stroke-dasharray=\"");
+                    int(&mut out, a.dash.0);
+                    out.push(b' ');
+                    int(&mut out, a.dash.1);
+                    out.push(b'"');
+                }
+                if a.round {
+                    out.extend_from_slice(b" stroke-linecap=\"round\" stroke-linejoin=\"round\"");
+                }
+            }
+            out.extend_from_slice(b"/>");
+        }
+        self.art = out;
+    }
+
     pub fn document_pdf(&mut self) -> i32 {
         const CATALOG: usize = 1;
         const PAGES: usize = 2;
@@ -283,8 +455,8 @@ impl Engine {
         self.out.clear();
         self.out.extend_from_slice(b"%PDF-1.4\n");
 
-        for i in 0..self.laid.items.len() {
-            let it = self.laid.items[i];
+        for i in 0..self.laid.items.len() + self.laid.spun.len() {
+            let it = if i < self.laid.items.len() { self.laid.items[i] } else { self.laid.spun[i - self.laid.items.len()] };
             if it.kind != IT_GLYPH || forms[it.a as usize] != 0 {
                 continue;
             }
@@ -300,10 +472,13 @@ impl Engine {
         }
 
         let mut start = 0;
+        let mut art_start = 0;
         for p in 0..self.laid.pages.len() {
             let end = self.laid.pages[p] as usize;
-            self.page_stream(body, start, end, forms);
+            let art_end = self.laid.art_pages[p] as usize;
+            self.page_stream(body, start, end, (art_start, art_end), forms);
             start = end;
+            art_start = art_end;
             let content = next;
             self.object(offsets, content);
             self.stream(b"", body);

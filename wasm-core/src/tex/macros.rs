@@ -95,7 +95,7 @@ impl Engine {
         self.find_def(name).is_some() || lookup(name).is_some()
     }
 
-    fn load_package(&mut self, i: usize) -> R<()> {
+    pub(super) fn load_package(&mut self, i: usize) -> R<()> {
         if self.pkgs & (1 << i) != 0 {
             return Ok(());
         }

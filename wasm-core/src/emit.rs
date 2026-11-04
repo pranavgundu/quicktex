@@ -1,5 +1,6 @@
 use crate::data::*;
 use crate::tex::*;
+use alloc::vec::Vec;
 use core::arch::wasm32::{v128, v128_load, v128_store};
 
 static DIGITS: [u8; 200] = {
@@ -179,7 +180,7 @@ impl Engine {
     pub(crate) fn emit(&mut self, root: Bx) {
         let n = self.items.len();
         let ng = self.groups.len();
-        let mut cap = 512 + ng * 96;
+        let mut cap = 512 + ng * 96 + self.art.len();
         self.counts.clear();
         self.counts.resize(ng + 1, 0);
         for it in &self.items {
@@ -226,6 +227,10 @@ impl Engine {
             put(p, b"\" fill=\"currentColor\" style=\"vertical-align:");
             em(p, -d);
             put(p, b";overflow:visible\">");
+            if !self.art.is_empty() {
+                put(p, &self.art);
+                self.art.clear();
+            }
             if single {
                 if n > 0 {
                     let g = self.groups[self.items[0].g as usize];
@@ -256,6 +261,32 @@ impl Engine {
             put(p, b"</svg>");
             let len = q.offset_from(base) as usize;
             self.out.set_len(len);
+        }
+    }
+
+    pub(crate) fn text_paths(&self, items: &[Item], out: &mut Vec<u8>) {
+        let mut cap = 64;
+        for it in items {
+            cap += 96 + if it.kind == IT_GLYPH { GLYPHS[it.a as usize].len as usize + 40 } else { 512 };
+        }
+        out.reserve(cap);
+        unsafe {
+            let base = out.as_mut_ptr().add(out.len());
+            let mut q = base;
+            let p = &mut q;
+            let mut i = 0;
+            while i < items.len() {
+                let gi = items[i].g;
+                let g = self.groups[gi as usize];
+                self.open_path(p, g);
+                while i < items.len() && items[i].g == gi {
+                    Self::item(p, &items[i], g.scale);
+                    i += 1;
+                }
+                put(p, b"\"/>");
+            }
+            let added = q.offset_from(base) as usize;
+            out.set_len(out.len() + added);
         }
     }
 

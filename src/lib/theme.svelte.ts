@@ -1,14 +1,8 @@
+import { remember, remembered } from './storage'
+
 const storageKey = 'quicktex-theme'
 const root = document.documentElement
 const system = matchMedia('(prefers-color-scheme: dark)')
-
-function chosen() {
-  try {
-    return localStorage.getItem(storageKey)
-  } catch {
-    return null
-  }
-}
 
 function paint(dark: boolean) {
   root.classList.toggle('dark', dark)
@@ -22,7 +16,7 @@ class Theme {
   constructor() {
     paint(this.dark)
     system.addEventListener('change', (event) => {
-      if (chosen() === null) this.set(event.matches)
+      if (remembered(storageKey) === null) this.set(event.matches)
     })
   }
 
@@ -33,11 +27,7 @@ class Theme {
 
   toggle() {
     this.set(!this.dark)
-    try {
-      localStorage.setItem(storageKey, this.dark ? 'dark' : 'light')
-    } catch {
-      return
-    }
+    remember(storageKey, this.dark ? 'dark' : 'light')
   }
 }
 

@@ -162,6 +162,7 @@ const E_COLOR: u8 = 10;
 const E_UNIT: u8 = 11;
 const E_MISPLACED: u8 = 12;
 const E_PACKAGE: u8 = 13;
+const E_OPTION: u8 = 14;
 
 pub const IT_GLYPH: u8 = 0;
 pub const IT_RULE: u8 = 1;
@@ -323,6 +324,8 @@ pub struct Engine {
     doc: Laid,
     laid: Laid,
     scratch: pdf::Scratch,
+    store: document::Store,
+    pub(crate) art: Vec<u8>,
     words: Vec<Word>,
     line_costs: Vec<(i64, u32)>,
     line_ends: Vec<u32>,
@@ -507,6 +510,8 @@ impl Engine {
             doc: Laid::default(),
             laid: Laid::default(),
             scratch: pdf::Scratch::default(),
+            store: document::Store::default(),
+            art: Vec::new(),
             words: Vec::new(),
             line_costs: Vec::new(),
             line_ends: Vec::new(),
@@ -602,6 +607,7 @@ impl Engine {
             E_UNIT => b"invalid dimension",
             E_MISPLACED => b"misplaced token",
             E_PACKAGE => b"unknown package",
+            E_OPTION => b"unsupported drawing option",
             _ => b"parse error",
         };
         self.out.clear();

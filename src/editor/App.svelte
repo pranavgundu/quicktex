@@ -7,6 +7,7 @@
   import Typeset from '../lib/Typeset.svelte'
   import { back, download as downloadIcon, warning } from '../lib/icons'
   import { charIndex } from '../lib/latex'
+  import { remember, remembered } from '../lib/storage'
   import Pages from './Pages.svelte'
   import Source from './Source.svelte'
   import { starter } from './starter'
@@ -14,22 +15,6 @@
   const storageKey = 'quicktex-document'
   const saveDelay = 400
   const splitStorageKey = 'quicktex-split'
-
-  function remembered(key: string) {
-    try {
-      return localStorage.getItem(key)
-    } catch {
-      return null
-    }
-  }
-
-  function remember(key: string, value: string) {
-    try {
-      localStorage.setItem(key, value)
-    } catch {
-      return
-    }
-  }
 
   let source = $state(remembered(storageKey) ?? starter)
   let pages = $state(0)

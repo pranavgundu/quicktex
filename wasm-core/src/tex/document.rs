@@ -1,9 +1,14 @@
 use super::*;
 
+mod figure;
+mod float;
+mod plot;
+
+const CENTER_GAP: i32 = 800;
+const TITLE_GAP: i32 = 2800;
 const SPACE: i32 = 333;
 const STRETCH: i32 = 166;
 const SHRINK: i32 = 111;
-const BASELINE: i32 = 1200;
 const LINESKIP: i32 = 100;
 const TOPSKIP: i32 = 1000;
 const PARINDENT: i32 = 1500;
@@ -19,10 +24,55 @@ pub(super) struct Word {
     forced: bool,
 }
 
+#[derive(Clone, Copy)]
+pub(super) struct Seg {
+    pub(super) op: u8,
+    pub(super) x: i32,
+    pub(super) y: i32,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct Art {
+    pub(super) s: u32,
+    pub(super) e: u32,
+    pub(super) x: i32,
+    pub(super) y: i32,
+    pub(super) stroke: u32,
+    pub(super) fill: u32,
+    pub(super) width: i32,
+    pub(super) dash: (i32, i32),
+    pub(super) round: bool,
+    pub(super) text: bool,
+    pub(super) cos: i32,
+    pub(super) sin: i32,
+}
+
+pub(super) const SEG_MOVE: u8 = 0;
+pub(super) const SEG_LINE: u8 = 1;
+pub(super) const SEG_CURVE: u8 = 2;
+pub(super) const SEG_CLOSE: u8 = 3;
+pub(super) const NO_COLOR: u32 = u32::MAX;
+
+#[derive(Default)]
+pub(super) struct Store {
+    pic: figure::Pic,
+    held: Vec<float::Held>,
+    held_items: Vec<Item>,
+    held_art: Vec<Art>,
+    tail_items: Vec<Item>,
+    tail_art: Vec<Art>,
+    cells: Vec<(Bx, u16, u16)>,
+    rows: Vec<float::TableRow>,
+}
+
 #[derive(Default)]
 pub(super) struct Laid {
     pub(super) items: Vec<Item>,
     pub(super) pages: Vec<u32>,
+    pub(super) art: Vec<Art>,
+    pub(super) segs: Vec<Seg>,
+    pub(super) spun: Vec<Item>,
+    pub(super) art_pages: Vec<u32>,
     pub(super) groups: Vec<Grp>,
     pub(super) colors: Vec<(u32, u32)>,
     pub(super) color_bytes: Vec<u8>,
@@ -38,6 +88,7 @@ enum Label {
     Text(&'static [u8]),
 }
 
+#[derive(Clone)]
 struct Doc {
     left: i32,
     top: i32,
@@ -58,14 +109,29 @@ struct Doc {
     word: Option<Bx>,
     label: Option<Label>,
     ctx: Ctx,
+    columns: u8,
+    column: u8,
+    column_gap: i32,
+    baseline: i32,
+    frame_left: i32,
+    frame_top: i32,
+    frame_w: i32,
+    frame_h: i32,
+    parskip: i32,
+    parindent: i32,
+    table_gap: i32,
+    float_gap: i32,
+    caption_gap: i32,
+    heading_gaps: [(i32, i32); 3],
+    figures: u32,
+    tables: u32,
+    float: u8,
 }
 
 fn is_definition(name: &[u8]) -> bool {
     matches!(
         name,
-        b"usepackage"
-            | b"RequirePackage"
-            | b"newcommand"
+        b"newcommand"
             | b"renewcommand"
             | b"providecommand"
             | b"def"
@@ -80,7 +146,32 @@ fn is_definition(name: &[u8]) -> bool {
 }
 
 fn ignored_setting(name: &[u8]) -> bool {
-    matches!(name, b"pagestyle" | b"thispagestyle" | b"pagenumbering" | b"geometry" | b"setlength" | b"setcounter" | b"label" | b"bibliographystyle")
+    matches!(
+        name,
+        b"pagestyle" | b"thispagestyle" | b"pagenumbering" | b"label" | b"bibliographystyle" | b"usetikzlibrary" | b"pgfplotsset" | b"graphicspath"
+    )
+}
+
+fn font_size(name: &[u8], pt: i32) -> Option<u16> {
+    let row: [i32; 10] = match pt {
+        11 => [6000, 8000, 9000, 10000, 10950, 12000, 14400, 17280, 20740, 24880],
+        12 => [6000, 8000, 10000, 10950, 12000, 14400, 17280, 20740, 24880, 24880],
+        _ => [5000, 7000, 8000, 9000, 10000, 12000, 14400, 17280, 20740, 24880],
+    };
+    let at = match name {
+        b"tiny" => 0,
+        b"scriptsize" => 1,
+        b"footnotesize" => 2,
+        b"small" => 3,
+        b"normalsize" => 4,
+        b"large" => 5,
+        b"Large" => 6,
+        b"LARGE" => 7,
+        b"huge" => 8,
+        b"Huge" => 9,
+        _ => return None,
+    };
+    Some((row[at] / pt) as u16)
 }
 
 fn ends_paragraph(name: &[u8]) -> bool {
@@ -115,6 +206,13 @@ impl Engine {
         self.words.clear();
         self.doc.items.clear();
         self.doc.pages.clear();
+        self.doc.art.clear();
+        self.doc.segs.clear();
+        self.doc.spun.clear();
+        self.doc.art_pages.clear();
+        self.store.held.clear();
+        self.store.held_items.clear();
+        self.store.held_art.clear();
         let ctx = Ctx { style: ST_T, font: 0, size: UNIT, scale: UNIT, color: 0, grp: 0 };
         let mut d = Doc {
             left: 0,
@@ -136,11 +234,35 @@ impl Engine {
             word: None,
             label: None,
             ctx,
+            columns: 1,
+            column: 0,
+            column_gap: 0,
+            baseline: 1200,
+            frame_left: 0,
+            frame_top: 0,
+            frame_w: 0,
+            frame_h: 0,
+            parskip: 0,
+            parindent: PARINDENT,
+            table_gap: 0,
+            float_gap: 0,
+            caption_gap: 0,
+            heading_gaps: [(1500, 900), (1200, 600), (1000, 400)],
+            figures: 0,
+            tables: 0,
+            float: 0,
         };
         self.set_paper(&mut d, b"");
         let done = self.blocks(&mut d, 0, 0, b"");
         match done.and_then(|()| {
             self.finish_page(&mut d)?;
+            while !self.store.held.is_empty() {
+                d.page += 1;
+                d.column = 0;
+                self.fit_frame(&mut d);
+                self.place_held(&mut d);
+                self.finish_page(&mut d)?;
+            }
             Ok(())
         }) {
             Ok(()) => {
@@ -168,6 +290,9 @@ impl Engine {
         self.groups.clone_from(&self.laid.groups);
         self.colors.clone_from(&self.laid.colors);
         self.color_bytes.clone_from(&self.laid.color_bytes);
+        let from = if page == 0 { 0 } else { self.laid.art_pages[page - 1] as usize };
+        let to = self.laid.art_pages[page] as usize;
+        self.art_svg(from, to);
         let n = self.end();
         self.emit(Bx { s: 0, e: n, w: self.laid.w, h: 0, d: self.laid.h });
         self.out.len() as i32
@@ -181,15 +306,149 @@ impl Engine {
         } else {
             (10, 345)
         };
-        let (page_w, page_h) = if contains(options, b"a4paper") { (595, 842) } else { (612, 792) };
+        let a4 = contains(options, b"a4paper");
+        let (page_w, page_h) = if a4 { (595, 842) } else { (612, 792) };
+        let (frame_top, frame_h) = match (pt, a4) {
+            (11, false) => (130, 541),
+            (12, false) => (126, 548),
+            (11, true) => (127, 596),
+            (12, true) => (129, 592),
+            (_, true) => (126, 598),
+            _ => (125, 550),
+        };
         let unit = |v: i32| v * 1000 / pt;
+        let two = contains(options, b"twocolumn");
         self.doc.pt = pt;
         self.doc.w = unit(page_w);
         self.doc.h = unit(page_h);
-        d.text_w = unit(text_w);
-        d.left = (self.doc.w - d.text_w) / 2;
-        d.text_h = unit(page_h - 240);
-        d.top = unit(110);
+        d.columns = if two { 2 } else { 1 };
+        d.frame_w = unit(if two { 470 } else { text_w });
+        d.frame_left = (self.doc.w - d.frame_w) / 2;
+        d.frame_h = unit(frame_h);
+        d.frame_top = unit(frame_top);
+        d.column_gap = unit(10);
+        d.baseline = match pt {
+            11 => 1236,
+            12 => 1208,
+            _ => 1200,
+        };
+        d.table_gap = unit(6);
+        d.float_gap = unit(12);
+        d.caption_gap = unit(10);
+        self.fit_frame(d);
+    }
+
+    fn fit_frame(&mut self, d: &mut Doc) {
+        d.top = d.frame_top;
+        d.text_h = d.frame_h;
+        if d.columns == 2 {
+            d.text_w = (d.frame_w - d.column_gap) / 2;
+            d.left = d.frame_left + d.column as i32 * (d.text_w + d.column_gap);
+        } else {
+            d.text_w = d.frame_w;
+            d.left = d.frame_left;
+        }
+    }
+
+    fn set_margins(&mut self, d: &mut Doc, options: &'static [u8]) {
+        let mut at = 0;
+        let (mut left, mut right, mut top, mut bottom) = (None, None, None, None);
+        while let Some((key, value)) = figure::next_option(options, &mut at) {
+            let Some(v) = figure::length_pt(value) else {
+                continue;
+            };
+            let v = Some(self.pt_units(v));
+            match key {
+                b"margin" => (left, right, top, bottom) = (v, v, v, v),
+                b"hmargin" => (left, right) = (v, v),
+                b"vmargin" => (top, bottom) = (v, v),
+                b"left" | b"lmargin" => left = v,
+                b"right" | b"rmargin" => right = v,
+                b"top" | b"tmargin" => top = v,
+                b"bottom" | b"bmargin" => bottom = v,
+                _ => {}
+            }
+        }
+        if left.is_some() || right.is_some() {
+            let l = left.or(right).unwrap_or(0);
+            let r = right.or(left).unwrap_or(0);
+            d.frame_left = l;
+            d.frame_w = self.doc.w - l - r;
+        }
+        if top.is_some() || bottom.is_some() {
+            let t = top.or(bottom).unwrap_or(0);
+            let b = bottom.or(top).unwrap_or(0);
+            d.frame_top = t;
+            d.frame_h = self.doc.h - t - b;
+        }
+        self.fit_frame(d);
+    }
+
+    fn pt_units(&self, v: f64) -> i32 {
+        (v * 1000.0 / self.doc.pt as f64) as i32
+    }
+
+    fn package_line(&mut self, d: &mut Doc) -> R<()> {
+        self.skip_ws();
+        let options = if self.peek() == b'[' { self.bracketed()? } else { b"" };
+        let names = self.group_text()?;
+        for part in names.split(|b| *b == b',') {
+            let name = part.trim_ascii();
+            match name {
+                b"" | b"tikz" | b"pgfplots" => {}
+                b"geometry" => self.set_margins(d, options),
+                b"parskip" => {
+                    d.parskip = 618;
+                    d.parindent = 0;
+                }
+                _ if crate::packages::is_noop(name) => {}
+                _ => match crate::packages::find_package(name) {
+                    Some(i) => self.load_package(i)?,
+                    None => return self.fail_at(name, E_PACKAGE),
+                },
+            }
+        }
+        Ok(())
+    }
+
+    fn set_length(&mut self, d: &mut Doc) -> R<()> {
+        let name = self.group_text()?;
+        let value = self.group_text()?;
+        let Some(v) = figure::length_pt(value) else {
+            return Ok(());
+        };
+        let v = self.pt_units(v);
+        match name {
+            b"\\columnsep" => {
+                d.column_gap = v;
+                self.fit_frame(d);
+            }
+            b"\\parindent" => d.parindent = v,
+            b"\\parskip" => d.parskip = v,
+            b"\\tabcolsep" => d.table_gap = v,
+            b"\\intextsep" => d.float_gap = v,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    fn title_spacing(&mut self, d: &mut Doc) -> R<()> {
+        self.skip_star();
+        let level = self.group_text()?;
+        self.group_text()?;
+        let before = self.group_text()?;
+        let after = self.group_text()?;
+        let at = match level {
+            b"\\section" => 0,
+            b"\\subsection" => 1,
+            b"\\subsubsection" => 2,
+            _ => return Ok(()),
+        };
+        let first = |t: &'static [u8]| &t[..t.iter().position(|c| *c == b' ').unwrap_or(t.len())];
+        if let (Some(b), Some(a)) = (figure::length_pt(first(before)), figure::length_pt(first(after))) {
+            d.heading_gaps[at] = (self.pt_units(b), self.pt_units(a));
+        }
+        Ok(())
     }
 
     fn block_reset(&mut self) {
@@ -271,7 +530,7 @@ impl Engine {
                 b"title" => d.title = self.group_text()?,
                 b"author" => d.author = self.group_text()?,
                 b"date" => d.date = self.group_text()?,
-                b"maketitle" => self.title_block(d, left, width)?,
+                b"maketitle" => self.title_block(d)?,
                 b"section" => self.heading(d, 0, left, width)?,
                 b"subsection" => self.heading(d, 1, left, width)?,
                 b"subsubsection" => self.heading(d, 2, left, width)?,
@@ -280,7 +539,31 @@ impl Engine {
                         self.new_page(d)?;
                     }
                 }
-                b"par" => {}
+                b"par" | b"raggedbottom" | b"flushbottom" | b"sloppy" | b"raggedright" | b"protect" => {}
+                b"centering" => d.center = true,
+                b"caption" => self.caption(d, left, width)?,
+                b"usepackage" | b"RequirePackage" => self.package_line(d)?,
+                b"setlength" => self.set_length(d)?,
+                b"setcounter" => {
+                    self.skip_argument()?;
+                    self.skip_argument()?;
+                }
+                b"geometry" => {
+                    let options = self.group_text()?;
+                    self.set_margins(d, options);
+                }
+                b"titlespacing" => self.title_spacing(d)?,
+                b"captionsetup" => {
+                    let options = self.group_text()?;
+                    let mut at = 0;
+                    while let Some((key, value)) = figure::next_option(options, &mut at) {
+                        if key == b"skip" {
+                            if let Some(v) = figure::length_pt(value) {
+                                d.caption_gap = self.pt_units(v);
+                            }
+                        }
+                    }
+                }
                 b"noindent" => d.noindent = true,
                 b"smallskip" => d.skip += 300,
                 b"medskip" => d.skip += 600,
@@ -328,6 +611,10 @@ impl Engine {
                 _ if ignored_setting(name) => self.skip_argument()?,
                 b"tableofcontents" | b"today" => {}
                 _ => {
+                    if let Some(size) = font_size(name, self.doc.pt) {
+                        d.ctx = self.sized(d, size);
+                        continue;
+                    }
                     self.pos = start;
                     self.paragraph(d, left, width)?;
                 }
@@ -355,11 +642,16 @@ impl Engine {
             b"center" => {
                 let outer = d.center;
                 d.center = true;
+                d.skip = d.skip.max(CENTER_GAP);
                 self.blocks(d, left, narrow, name)?;
                 self.close_env(name)?;
                 d.center = outer;
+                d.skip = d.skip.max(CENTER_GAP);
             }
             b"quote" | b"quotation" => self.quote_block(d, left, narrow, name)?,
+            b"figure" | b"figure*" | b"table" | b"table*" => self.float_block(d, left, narrow, name)?,
+            b"tabular" => self.table_block(d, left, width)?,
+            b"tikzpicture" => self.picture(d, left, width)?,
             b"abstract" => {
                 d.skip += 600;
                 self.block_reset();
@@ -464,21 +756,48 @@ impl Engine {
         Ok(())
     }
 
-    fn title_block(&mut self, d: &mut Doc, left: i32, width: i32) -> R<()> {
-        let rows: [(&'static [u8], u16, i32); 3] = [(d.title, 1728, 0), (d.author, 1200, 800), (d.date, 1200, 500)];
+    fn title_block(&mut self, d: &mut Doc) -> R<()> {
+        let pt = self.doc.pt;
+        let large = font_size(b"large", pt).unwrap_or(1200);
+        let title = font_size(b"LARGE", pt).unwrap_or(1728);
+        let rows: [(&'static [u8], u16, i32); 3] = [(d.title, title, 0), (d.author, large, 1500), (d.date, large, 1000)];
+        let (left, top, width, height) = (d.left, d.top, d.text_w, d.text_h);
+        d.left = d.frame_left;
+        d.text_w = d.frame_w;
+        let wide = d.frame_w;
+        let single = d.columns == 1;
+        let row_gap = if single { d.parskip } else { 0 };
+        d.fresh = false;
+        d.skip += TITLE_GAP + if single { self.pt_units(10.0) } else { 0 };
         for (text, size, gap) in rows {
             if text.is_empty() {
                 continue;
             }
             self.block_reset();
             let c = self.sized(d, size);
-            d.skip += gap;
+            d.skip += if gap > 0 { gap + row_gap } else { 0 };
             self.sub_text(d, text, &c, 0)?;
             self.flush_word(d, false);
-            self.set_lines(d, &c, left, width, 0, true, true);
+            self.set_lines(d, &c, 0, wide, 0, true, true);
         }
-        d.skip += 1500;
+        d.skip += 1500
+            + match (single, d.parskip > 0) {
+                (true, true) => -d.parskip * 3 / 4,
+                (false, false) => self.pt_units(10.5),
+                _ => 0,
+            };
         d.noindent = true;
+        d.left = left;
+        d.text_w = width;
+        if d.columns == 2 {
+            let used = d.base + d.dep + d.skip;
+            d.top = top + used;
+            d.text_h = height - used;
+            d.base = 0;
+            d.dep = 0;
+            d.skip = 0;
+            d.fresh = true;
+        }
         Ok(())
     }
 
@@ -488,7 +807,9 @@ impl Engine {
         if self.peek() != b'{' {
             return self.fail(E_ARG);
         }
-        let (size, before, after) = [(1440, 1500, 900), (1200, 1200, 600), (1000, 1000, 400)][level];
+        let (before, after) = d.heading_gaps[level];
+        let pt = self.doc.pt;
+        let size = font_size([b"Large" as &[u8], b"large", b"normalsize"][level], pt).unwrap_or(1000);
         let c = self.sized(d, size);
         if !star {
             d.sections[level] += 1;
@@ -506,7 +827,7 @@ impl Engine {
         self.inline(d, &c, &mut font, true)?;
         self.flush_word(d, false);
         d.skip += before;
-        if !d.fresh && d.base + d.skip + 4 * BASELINE > d.text_h {
+        if !d.fresh && d.base + d.skip + 4 * d.baseline > d.text_h {
             self.new_page(d)?;
         }
         self.set_lines(d, &c, left, width, 0, true, false);
@@ -520,7 +841,10 @@ impl Engine {
         let mut font = 0;
         self.inline(d, &c, &mut font, false)?;
         self.flush_word(d, false);
-        let indent = if d.noindent || d.center { 0 } else { PARINDENT };
+        let indent = if d.noindent || d.center { 0 } else { d.parindent };
+        if d.parskip > 0 && !d.noindent && !d.fresh {
+            d.skip += d.parskip;
+        }
         d.noindent = false;
         self.set_lines(d, &c, left, width, indent, d.center, d.center);
         Ok(())
@@ -562,6 +886,8 @@ impl Engine {
     }
 
     fn inline(&mut self, d: &mut Doc, c: &Ctx, font: &mut u8, group: bool) -> R<()> {
+        let mut scoped = *c;
+        let c = &mut scoped;
         loop {
             if self.at_end() {
                 if group {
@@ -672,7 +998,7 @@ impl Engine {
         Ok(())
     }
 
-    fn inline_command(&mut self, d: &mut Doc, c: &Ctx, font: &mut u8, group: bool) -> R<bool> {
+    fn inline_command(&mut self, d: &mut Doc, c: &mut Ctx, font: &mut u8, group: bool) -> R<bool> {
         let tok = self.pos;
         self.pos += 1;
         let name = self.read_name();
@@ -710,13 +1036,17 @@ impl Engine {
             b"sffamily" | b"sf" => *font = FONT_SANSSERIF_REGULAR,
             b"rmfamily" | b"rm" | b"normalfont" => *font = 0,
             b"label" => self.skip_argument()?,
-            b"today" => {}
+            b"today" | b"centering" | b"protect" => {}
             b"LaTeX" | b"TeX" => {
                 for ch in name {
                     self.put_char(d, c, *font, *ch as u32)?;
                 }
             }
             _ => {
+                if let Some(size) = font_size(name, self.doc.pt) {
+                    *c = self.restyle(&Ctx { size, ..*c }, ST_T);
+                    return Ok(false);
+                }
                 let Some(sy) = lookup(name) else {
                     self.pos = tok;
                     return self.fail(E_CMD);
@@ -791,7 +1121,7 @@ impl Engine {
 
     fn place_line(&mut self, d: &mut Doc, h: i32, dep: i32) -> i32 {
         if !d.fresh {
-            let y = d.base + BASELINE.max(d.dep + h + LINESKIP) + d.skip;
+            let y = d.base + d.baseline.max(d.dep + h + LINESKIP) + d.skip;
             if y + dep <= d.text_h {
                 d.base = y;
                 d.dep = dep;
@@ -845,10 +1175,20 @@ impl Engine {
     }
 
     fn new_page(&mut self, d: &mut Doc) -> R<()> {
-        self.finish_page(d)?;
-        d.page += 1;
         d.fresh = true;
         d.skip = 0;
+        d.base = 0;
+        d.dep = 0;
+        if d.columns == 2 && d.column == 0 {
+            d.column = 1;
+            d.left = d.frame_left + d.text_w + d.column_gap;
+            return Ok(());
+        }
+        self.finish_page(d)?;
+        d.page += 1;
+        d.column = 0;
+        self.fit_frame(d);
+        self.place_held(d);
         Ok(())
     }
 
@@ -856,13 +1196,19 @@ impl Engine {
         let c = d.ctx;
         let saved = d.word.take();
         let mark = self.end();
+        let (left, top) = (d.left, d.top);
+        d.left = d.frame_left;
+        d.top = d.frame_top;
         self.put_number(d, &c, 0, d.page)?;
         if let Some(t) = d.word.take() {
-            self.commit(d, t.s, t.e, (d.text_w - t.w) / 2, d.text_h + 3000);
+            self.commit(d, t.s, t.e, (d.frame_w - t.w) / 2, d.frame_h + 3000);
         }
+        d.left = left;
+        d.top = top;
         self.items.truncate(mark as usize);
         d.word = saved;
         self.doc.pages.push(self.doc.items.len() as u32);
+        self.doc.art_pages.push(self.doc.art.len() as u32);
         Ok(())
     }
 

@@ -50,7 +50,11 @@ const svg = documentPage(0)
 const pdf = documentPdf()
 ```
 
-It handles `article` style documents: titles, abstracts, numbered sections, paragraphs, inline and displayed math, numbered equations, lists, quotes and centered text. It does not yet handle `\ref`, `\cite`, footnotes, tables, figures, images, or a table of contents. Text in the PDF is drawn as shapes, so it cannot be selected or searched.
+It handles `article` style documents: titles, abstracts, numbered sections, paragraphs, inline and displayed math, numbered equations, lists, quotes, centered text, one or two columns, page margins from `geometry`, `parskip`, tables with `booktabs` rules, numbered figures and tables with captions, and drawings.
+
+Drawings use a subset of TikZ and pgfplots: lines, curves, rectangles, circles, ellipses, arcs, arrow tips, nodes, named coordinates, `calc` points, scopes with scale, shift and rotate, styles, and `axis` plots with coordinates, functions, grids, legends and automatic ticks. An option outside that subset is an `unsupported drawing option` error on its line.
+
+It does not yet handle `\ref`, `\cite`, footnotes, images, `\foreach`, `\multicolumn`, a table of contents, or hyphenation, so line breaks differ from `pdflatex`. Floats stay where they are written, except wide `figure*` floats, which move to the top of the next page. Text in the PDF is drawn as shapes, so it cannot be selected or searched.
 
 ## Packages
 
@@ -58,7 +62,7 @@ Load a package with `\usepackage{...}` in the input, which lasts for that render
 
 Implemented: `amsmath`, `mathtools`, `physics`, `braket`, `cancel`, `mhchem`, `chemformula`, `siunitx`, `nicefrac`, `xfrac`, `gensymb`, `commath`, `derivative`, `diffcoeff`, `units`, `dsfont`, `bbm`, `bbold`, `centernot`, `slashed`, `faktor`, `interval`, `stmaryrd`.
 
-Preamble packages such as `geometry`, `hyperref` and `inputenc` are accepted and ignored. Anything else is an `unknown package` error.
+Preamble packages such as `hyperref` and `inputenc` are accepted and ignored. In full documents, `geometry`, `parskip`, `tikz` and `pgfplots` take effect. Anything else is an `unknown package` error.
 
 Your own commands work too: `\newcommand`, `\renewcommand`, `\providecommand`, `\def`, `\NewDocumentCommand`, `\DeclareMathOperator`, `\DeclarePairedDelimiter` and `\definecolor`.
 
