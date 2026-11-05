@@ -94,12 +94,12 @@ describe('editor', () => {
     expect(kept).toBeLessThanOrEqual(marked)
   })
 
-  test('a mistake shows the line and keeps the last good pages', async () => {
+  test('a mistake shows the line, clears the pages and disables PDF downloads', async () => {
     await open(lab)
     await typeBeforeEnd('\\begin{tikzpicture}\\end{quote}')
     expect(await status()).toContain('on line')
-    expect(await status()).toContain('Pages show the last good version')
-    expect(await s.page.locator('article').count()).toBe(2)
+    expect(await s.page.locator('article').count()).toBe(0)
+    expect(await s.page.getByRole('button', { name: 'Download PDF' }).isDisabled()).toBe(true)
   })
 
   test('clicking an error moves the cursor to it', async () => {
@@ -124,11 +124,14 @@ describe('editor', () => {
 
   test('fixing a mistake brings the pages back', async () => {
     await open(lab)
-    await typeBeforeEnd('\\nope')
-    expect(await status()).toContain('Ignored \\nope')
-    for (let i = 0; i < 5; i++) await s.page.keyboard.press('Backspace')
+    const mistake = '\\begin{tikzpicture}\\end{quote}'
+    await typeBeforeEnd(mistake)
+    expect(await s.page.locator('article').count()).toBe(0)
+    for (let i = 0; i < mistake.length; i++) await s.page.keyboard.press('Backspace')
     await s.page.waitForTimeout(300)
     expect(await status()).toStartWith('2 pages, ')
+    expect(await sheets().count()).toBeGreaterThan(0)
+    expect(await s.page.getByRole('button', { name: 'Download PDF' }).isEnabled()).toBe(true)
   })
 
   test('downloads a two page pdf', async () => {

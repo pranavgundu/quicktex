@@ -37,10 +37,11 @@ const shown = () => s.page.evaluate(() => (document.querySelector('.cm-content')
 
 async function toTitle() {
   await s.page.locator('.cm-content').click()
-  await s.page.keyboard.press('ControlOrMeta+ArrowUp')
+  await s.page.keyboard.press('ControlOrMeta+Home')
   for (let i = 0; i < titleLine; i++) await s.page.keyboard.press('ArrowDown')
   await s.page.keyboard.press('End')
   for (let i = 0; i < 3; i++) await s.page.keyboard.press('ArrowLeft')
+  expect(await s.page.locator('.cm-activeLine').innerText()).toBe(tree.split('\n')[titleLine]!)
   await s.page.waitForTimeout(600)
   await s.page.evaluate(() => {
     const tasks: number[] = []
@@ -99,18 +100,17 @@ describe('a heavy document', () => {
     expect(await glyphs()).toBe(settled)
   })
 
-  test('a mistake keeps the last good pages and leaves typing alone', async () => {
+  test('a mistake clears the pages and leaves typing alone', async () => {
     await s.page.keyboard.press('ArrowRight')
     await s.page.keyboard.press('ArrowRight')
     await s.page.keyboard.press('Backspace')
     await s.page.locator('[role=status]').getByText('on line', { exact: false }).first().waitFor({ state: 'attached' })
-    expect(await paths()).toBeGreaterThan(20)
+    expect(await s.page.locator('article').count()).toBe(0)
     expect(await longest()).toBeLessThan(budget)
   })
 
   test('the status shows a time after typing stops', async () => {
     await s.page.keyboard.type('x')
-    await s.page.waitForTimeout(1200)
-    expect(await s.page.locator('[role=status] .sr-only').first().textContent()).toMatch(/[\d.]+ ms, PDF [\d.]+ (µs|ms)$/)
+    await s.page.waitForFunction(() => /[\d.]+ (µs|ms), PDF [\d.]+ (µs|ms)$/.test(document.querySelector('[role=status] .sr-only')?.textContent ?? ''))
   })
 })

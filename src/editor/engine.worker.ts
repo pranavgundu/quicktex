@@ -34,6 +34,7 @@ function compile(id: number, source: string): Answer {
     return { kind: 'compiled', id, pages: total, micros, warningCount: warnings.length, warningAt, sheets: sheets() }
   } catch (error) {
     if (!(error instanceof QuicktexError)) throw error
+    total = 0
     const at = charIndex(source, error.position)
     return { kind: 'failed', id, message: error.message, at, line: source.slice(0, at).split('\n').length }
   }
@@ -66,6 +67,7 @@ self.onmessage = async ({ data }: MessageEvent<Request>) => {
       const included = Object.values(data.files ?? {}).filter((value): value is string => typeof value === 'string').join(' ');
       await loadFontsFor(data.tex + included);
     } catch (error) {
+      total = 0
       self.postMessage({ kind: 'failed', id: data.id, message: String(error), at: 0, line: 1 });
       return;
     }

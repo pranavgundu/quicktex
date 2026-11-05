@@ -54,7 +54,7 @@
   const warningTex = $derived(`\\text{Ignored }\\texttt{${warningToken.replace(/[^a-zA-Z0-9]/g, (c) => (c === '\\' ? '\\textbackslash ' : ''))}}\\text{ on line ${warningLine}${warningCount > 1 ? `, ${warningCount - 1} more` : ''}}`)
 
   function show(fresh: Sheet[]) {
-    if (fresh.length === 0) return
+    if (problem || fresh.length === 0) return
     const next = sheets.slice()
     for (const [page, svg] of fresh) next[page] = svg
     sheets = next
@@ -73,6 +73,7 @@
       show(answer.sheets)
     },
     failed(answer) {
+      clearPreview()
       problemAt = answer.at
       problem = `${answer.message[0].toUpperCase()}${answer.message.slice(1)} on line ${answer.line}`
     },
@@ -82,9 +83,18 @@
     },
     sheets: show,
     broken() {
+      clearPreview()
       problem = 'The renderer stopped. Reload the page to try again.'
     },
   })
+
+  function clearPreview() {
+    pages = 0
+    sheets = []
+    warningAt = null
+    warningCount = 0
+    pdfMicros = null
+  }
 
   $effect(() => {
     const tex = source
@@ -117,7 +127,10 @@
   }
 
   async function download() {
-    const url = URL.createObjectURL(new Blob([(await engine.pdf()) as BlobPart], { type: 'application/pdf' }))
+    if (pages === 0 || problem) return
+    const bytes = await engine.pdf()
+    if (pages === 0 || problem) return
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'application/pdf' }))
     const link = document.createElement('a')
     link.href = url
     link.download = 'document.pdf'
@@ -209,9 +222,6 @@
             >
               <Icon icon={warning} />
               <span class="min-w-0 flex-1 truncate"><Typeset text={problem} /></span>
-              {#if pages > 0}
-                <span class="shrink-0 text-quiet max-lg:hidden"><Typeset text="Pages show the last good version" /></span>
-              {/if}
             </button>
           {:else}
             <p class="min-w-0 truncate px-4"><Typeset text={statusText} tex={statusTex} /></p>
