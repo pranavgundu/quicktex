@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { flushSync, untrack } from 'svelte'
-  import { documentPage } from '../../wasm-core/js/quicktex.js'
+  import { flushSync } from 'svelte'
   import Icon from '../lib/Icon.svelte'
   import Typeset from '../lib/Typeset.svelte'
   import { fit, minus, plus } from '../lib/icons'
@@ -8,7 +7,7 @@
   import { showPage } from './patch'
   import { clampZoom, doubleClickZoom, maxZoom, minZoom, nextPreset, savedZoom, wheelFactor } from './zoom'
 
-  let { count, version }: { count: number; version: number } = $props()
+  let { count, sheets, onwatch }: { count: number; sheets: string[]; onwatch: (pages: number[]) => void } = $props()
 
   const margin = 48
   const zoomKey = 'quicktex-zoom'
@@ -23,8 +22,6 @@
   let pageWidth = $state(55)
   let pageHeight = $state(71)
   let visible = $state.raw(new Set<number>())
-  let rendered = $state.raw<string[]>([])
-  const stamps: number[] = []
 
   const fitted = $derived(Math.max(width - margin, 120) / pageWidth)
   const size = $derived(fitted * zoom)
@@ -35,24 +32,14 @@
     return () => clearTimeout(save)
   })
 
+  $effect(() => onwatch([...visible]))
+
   $effect(() => {
-    const stamp = version
-    const total = count
-    const seen = visible
-    untrack(() => {
-      const next = rendered.slice(0, total)
-      for (const page of new Set([0, ...seen])) {
-        if (page >= total || stamps[page] === stamp) continue
-        next[page] = documentPage(page)
-        stamps[page] = stamp
-      }
-      const box = /width="([\d.]+)em" height="([\d.]+)em"/.exec(next[0] ?? '')
-      if (box) {
-        pageWidth = Number(box[1])
-        pageHeight = Number(box[2])
-      }
-      rendered = next
-    })
+    const box = /width="([\d.]+)em" height="([\d.]+)em"/.exec(sheets[0] ?? '')
+    if (box) {
+      pageWidth = Number(box[1])
+      pageHeight = Number(box[2])
+    }
   })
 
   const percent = $derived(Math.round(zoom * 100))
@@ -246,7 +233,7 @@
           style:width="{pageWidth}em"
           style:height="{pageHeight}em"
           use:watch={page}
-          use:showPage={rendered[page] ?? ''}
+          use:showPage={sheets[page] ?? ''}
         ></article>
       {/each}
     </div>

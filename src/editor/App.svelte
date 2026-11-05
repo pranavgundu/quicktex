@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { documentPdf, documentWarnings, QuicktexError, renderDocument } from '../../wasm-core/js/quicktex.js'
+  import { untrack } from 'svelte'
   import Button from '../lib/Button.svelte'
   import Icon from '../lib/Icon.svelte'
   import Segmented from '../lib/Segmented.svelte'
   import ThemeToggle from '../lib/ThemeToggle.svelte'
   import Typeset from '../lib/Typeset.svelte'
   import { back, download as downloadIcon, warning } from '../lib/icons'
-  import { charIndex } from '../lib/latex'
   import { remember, remembered } from '../lib/storage'
-  import { measure, timeTex, timeText } from '../lib/timing'
+  import { timeTex, timeText } from '../lib/timing'
+  import { connect, type Sheet } from './engine'
   import Outline from './Outline.svelte'
   import Pages from './Pages.svelte'
   import { countWords } from './scan'
@@ -18,7 +18,6 @@
   const storageKey = 'quicktex-document'
   const saveDelay = 400
   const pdfDelay = 150
-  const heavy = 2000
   const splitStorageKey = 'quicktex-split'
 
   const opened = remembered(storageKey) ?? starter
@@ -26,6 +25,7 @@
   let source = $state(opened)
   let pages = $state(0)
   let version = $state(0)
+  let sheets = $state.raw<string[]>([])
   let problem = $state('')
   let problemAt = $state<number | null>(null)
   let micros = $state(0)
@@ -49,58 +49,57 @@
   const warningText = $derived(`Ignored ${warningToken} on line ${warningLine}${warningCount > 1 ? `, ${warningCount - 1} more` : ''}`)
   const warningTex = $derived(`\\text{Ignored }\\texttt{${warningToken.replace(/[^a-zA-Z0-9]/g, (c) => (c === '\\' ? '\\textbackslash ' : ''))}}\\text{ on line ${warningLine}${warningCount > 1 ? `, ${warningCount - 1} more` : ''}}`)
 
-  function compile(tex: string) {
-    const start = performance.now()
-    try {
-      pages = renderDocument(tex)
-      micros = (performance.now() - start) * 1000
+  function show(fresh: Sheet[]) {
+    if (fresh.length === 0) return
+    const next = sheets.slice()
+    for (const [page, svg] of fresh) next[page] = svg
+    sheets = next
+  }
+
+  const engine = connect(new Worker(new URL('./engine.worker.ts', import.meta.url), { type: 'module' }), {
+    compiled(answer) {
+      pages = answer.pages
+      micros = answer.micros
       version++
       problem = ''
       problemAt = null
-      const warnings = documentWarnings()
-      warningCount = warnings.length
-      warningAt = warnings.length ? charIndex(tex, warnings[0]) : null
-    } catch (error) {
-      if (!(error instanceof QuicktexError)) throw error
-      problemAt = charIndex(tex, error.position)
-      const line = tex.slice(0, problemAt).split('\n').length
-      const message = error.message[0].toUpperCase() + error.message.slice(1)
-      problem = `${message} on line ${line}`
-    }
-  }
+      warningCount = answer.warningCount
+      warningAt = answer.warningAt
+      sheets = sheets.slice(0, answer.pages)
+      show(answer.sheets)
+    },
+    failed(answer) {
+      problemAt = answer.at
+      problem = `${answer.message[0].toUpperCase()}${answer.message.slice(1)} on line ${answer.line}`
+    },
+    timed(answer) {
+      micros = answer.micros
+      pdfMicros = answer.pdfMicros
+    },
+    sheets: show,
+    broken() {
+      problem = 'The renderer stopped. Reload the page to try again.'
+    },
+  })
 
   $effect(() => {
     const tex = source
-    const frame = requestAnimationFrame(() => compile(tex))
+    engine.compile(tex)
     const save = setTimeout(() => {
       remember(storageKey, tex)
       words = countWords(tex)
     }, saveDelay)
-    return () => {
-      cancelAnimationFrame(frame)
-      clearTimeout(save)
-    }
+    return () => clearTimeout(save)
   })
-
-  function timeWork() {
-    if (micros < heavy) {
-      const tex = source
-      micros = measure(() => renderDocument(tex))
-    }
-    const start = performance.now()
-    documentPdf()
-    const once = (performance.now() - start) * 1000
-    pdfMicros = once < heavy ? measure(documentPdf) : once
-  }
 
   $effect(() => {
     if (version === 0 || problem) return
-    const timer = setTimeout(timeWork, pdfDelay)
+    const timer = setTimeout(() => engine.time(untrack(() => micros)), pdfDelay)
     return () => clearTimeout(timer)
   })
 
-  function download() {
-    const url = URL.createObjectURL(new Blob([documentPdf() as BlobPart], { type: 'application/pdf' }))
+  async function download() {
+    const url = URL.createObjectURL(new Blob([(await engine.pdf()) as BlobPart], { type: 'application/pdf' }))
     const link = document.createElement('a')
     link.href = url
     link.download = 'document.pdf'
@@ -218,7 +217,7 @@
       class={['min-h-0 min-w-0', showing === 'source' && 'max-md:hidden']}
       aria-label="Pages"
     >
-      <Pages count={pages} {version} />
+      <Pages count={pages} {sheets} onwatch={(list) => engine.watch(list)} />
     </section>
   </main>
 </div>

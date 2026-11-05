@@ -41,6 +41,8 @@ render(String.raw`\dv{f}{x}`)
 
 `/editor/` is a separate page for whole documents. Write on the left, read the pages on the right, and download a PDF. It runs entirely in the browser and keeps your document in local storage.
 
+The engine runs in a Web Worker, so typing never waits for a compile. Text typed during a compile collapses to the newest version, so a slow document only delays the pages, not the keys.
+
 Zoom the pages from 25% to 500% by pinching, by scrolling with Ctrl or Cmd held, with the buttons, or by double clicking. With the pages focused, `+`, `-` and `0` zoom too. Drag to pan.
 
 ```js
@@ -111,3 +113,4 @@ Your own commands work too: `\newcommand`, `\renewcommand`, `\providecommand`, `
 | `wasm-core/js` | JavaScript API and the built wasm |
 | `src` | Formula page |
 | `src/editor`, `editor` | Full editor page |
+| `src/editor/engine.ts`, `src/editor/engine.worker.ts` | Compiling off the main thread |

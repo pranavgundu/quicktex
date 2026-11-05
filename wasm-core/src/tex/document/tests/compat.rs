@@ -94,6 +94,88 @@ fn standalone_text_sits_on_the_page_with_its_drawing() {
     }
 }
 
+fn path_count(d: &mut Done) -> usize {
+    d.page(0).matches("<path").count()
+}
+
+fn glyph_free(s: &str) -> Done {
+    clean(&format!(
+        "\\documentclass{{standalone}}\\usepackage{{tikz}}\\begin{{document}}\\begin{{tikzpicture}}{s}\\end{{tikzpicture}}\\end{{document}}"
+    ))
+}
+
+fn strokes(n: usize) -> String {
+    "\\draw (0,0) -- (1,1);".repeat(n)
+}
+
+#[test]
+fn long_runs_of_matching_strokes_share_one_path() {
+    let mut d = glyph_free(&strokes(200));
+    assert_eq!(d.all_art().len(), 200);
+    let svg = d.page(0);
+    assert_eq!(svg.matches("<path").count(), 1);
+    assert_eq!(svg.matches('M').count(), 200);
+    assert_eq!(svg.matches('L').count(), 200);
+}
+
+#[test]
+fn short_runs_stay_separate_so_they_anti_alias_as_drawn() {
+    assert_eq!(path_count(&mut glyph_free(&strokes(127))), 127);
+    assert_eq!(path_count(&mut glyph_free(&strokes(128))), 1);
+}
+
+#[test]
+fn a_short_run_does_not_swallow_a_long_one_after_it() {
+    let s = format!("{}\\draw[red] (0,0) -- (1,1);{}", strokes(3), strokes(200));
+    assert_eq!(path_count(&mut glyph_free(&s)), 3 + 1 + 1);
+}
+
+#[test]
+fn joined_paths_stop_at_a_size_limit() {
+    assert_eq!(path_count(&mut glyph_free(&strokes(2500))), 3);
+}
+
+#[test]
+fn different_strokes_end_a_run() {
+    for second in ["red", "thick", "dashed", "line cap=round"] {
+        let s = format!("{}\\draw[{second}] (0,0) -- (1,1);", strokes(200));
+        assert_eq!(path_count(&mut glyph_free(&s)), 2, "{second}");
+    }
+}
+
+#[test]
+fn a_filled_stroke_never_joins_a_plain_one() {
+    let s = format!("{}\\draw[fill=red] (0,0) circle (1);", strokes(200));
+    assert_eq!(path_count(&mut glyph_free(&s)), 2);
+}
+
+#[test]
+fn filled_strokes_stay_apart() {
+    assert_eq!(path_count(&mut glyph_free(&"\\draw[fill=red] (0,0) circle (1);".repeat(200))), 200);
+}
+
+#[test]
+fn joining_keeps_drawing_order_around_a_fill() {
+    let s = format!("{0}\\fill[red] (0,0) rectangle (1,1);{0}", strokes(200));
+    assert_eq!(path_count(&mut glyph_free(&s)), 3);
+}
+
+#[test]
+fn drawing_text_ends_a_run() {
+    let s = format!("{0}\\node[rotate=30] at (0,0) {{a}};{0}", strokes(200));
+    let mut d = glyph_free(&s);
+    let svg = d.page(0);
+    assert_eq!(svg.matches("<g ").count(), 1);
+    assert_eq!(svg.split("<g ").next().unwrap().matches("fill=\"none\"").count(), 1);
+}
+
+#[test]
+fn the_tree_page_stays_small() {
+    let mut d = clean(&TREE.replace("\\branch{6}", "\\branch{9}"));
+    assert_eq!(d.all_art().len(), 511);
+    assert_eq!(path_count(&mut d), 1);
+}
+
 #[test]
 fn foreach_repeats_the_body() {
     let d = clean_body("\\begin{tikzpicture}\\foreach \\x in {1,2,3}{\\draw (\\x,0) -- (\\x,1);}\\end{tikzpicture}");

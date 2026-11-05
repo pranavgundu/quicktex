@@ -193,6 +193,17 @@ fn color_value(text: &[u8]) -> (i32, i32, i32) {
     }
 }
 
+const MIN_JOINED: usize = 128;
+const MAX_JOINED: usize = 1024;
+
+fn joins(a: &document::Art, b: &document::Art, segs: &[document::Seg]) -> bool {
+    let stroked = |art: &document::Art| art.fill == document::NO_COLOR && art.stroke != document::NO_COLOR;
+    stroked(a)
+        && stroked(b)
+        && (a.stroke, a.width, a.dash, a.round) == (b.stroke, b.width, b.dash, b.round)
+        && segs.get(b.s as usize).is_some_and(|g| g.op == document::SEG_MOVE)
+}
+
 impl Engine {
     fn group_color(&self, id: u16) -> (i32, i32, i32) {
         let color = self.laid.groups[id as usize].color;
@@ -359,11 +370,44 @@ impl Engine {
         self.out.extend_from_slice(b"\nendstream\nendobj\n");
     }
 
+    fn art_segments(&self, a: &document::Art, out: &mut Vec<u8>) {
+        let segs = &self.laid.segs[a.s as usize..a.e as usize];
+        let mut k = 0;
+        while k < segs.len() {
+            let g = segs[k];
+            let (x, y) = (g.x + a.x, g.y + a.y);
+            match g.op {
+                document::SEG_MOVE | document::SEG_LINE => {
+                    out.push(if g.op == document::SEG_MOVE { b'M' } else { b'L' });
+                    int(out, x);
+                    out.push(b' ');
+                    int(out, y);
+                }
+                document::SEG_CURVE if k + 2 < segs.len() => {
+                    let (p, q) = (segs[k + 1], segs[k + 2]);
+                    out.push(b'C');
+                    for (i, v) in [x, y, p.x + a.x, p.y + a.y, q.x + a.x, q.y + a.y].iter().enumerate() {
+                        if i > 0 {
+                            out.push(b' ');
+                        }
+                        int(out, *v);
+                    }
+                    k += 2;
+                }
+                document::SEG_CLOSE => out.push(b'Z'),
+                _ => {}
+            }
+            k += 1;
+        }
+    }
+
     pub(super) fn art_svg(&mut self, from: usize, to: usize) {
         let mut out = core::mem::take(&mut self.art);
         out.clear();
-        for i in from..to {
+        let mut i = from;
+        while i < to {
             let a = self.laid.art[i];
+            i += 1;
             if a.text {
                 out.extend_from_slice(b"<g transform=\"matrix(");
                 milli(&mut out, a.cos);
@@ -383,33 +427,16 @@ impl Engine {
                 continue;
             }
             out.extend_from_slice(b"<path d=\"");
-            let segs = &self.laid.segs[a.s as usize..a.e as usize];
-            let mut k = 0;
-            while k < segs.len() {
-                let g = segs[k];
-                let (x, y) = (g.x + a.x, g.y + a.y);
-                match g.op {
-                    document::SEG_MOVE | document::SEG_LINE => {
-                        out.push(if g.op == document::SEG_MOVE { b'M' } else { b'L' });
-                        int(&mut out, x);
-                        out.push(b' ');
-                        int(&mut out, y);
-                    }
-                    document::SEG_CURVE if k + 2 < segs.len() => {
-                        let (p, q) = (segs[k + 1], segs[k + 2]);
-                        out.push(b'C');
-                        for (i, v) in [x, y, p.x + a.x, p.y + a.y, q.x + a.x, q.y + a.y].iter().enumerate() {
-                            if i > 0 {
-                                out.push(b' ');
-                            }
-                            int(&mut out, *v);
-                        }
-                        k += 2;
-                    }
-                    document::SEG_CLOSE => out.push(b'Z'),
-                    _ => {}
+            self.art_segments(&a, &mut out);
+            let run = self.laid.art[i..to].iter().take(MIN_JOINED).take_while(|next| joins(&a, next, &self.laid.segs)).count();
+            if run + 1 >= MIN_JOINED {
+                let mut joined = 1;
+                while joined < MAX_JOINED && i < to && joins(&a, &self.laid.art[i], &self.laid.segs) {
+                    let next = self.laid.art[i];
+                    self.art_segments(&next, &mut out);
+                    i += 1;
+                    joined += 1;
                 }
-                k += 1;
             }
             out.extend_from_slice(b"\" fill=\"");
             if a.fill == document::NO_COLOR {

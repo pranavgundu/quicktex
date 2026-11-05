@@ -8,6 +8,7 @@ const page = (path: string) => fileURLToPath(new URL(path, import.meta.url))
 export default defineConfig({
   base: './',
   plugins: [tailwindcss(), svelte()],
+  worker: { format: 'es' },
   build: {
     rolldownOptions: {
       input: {
