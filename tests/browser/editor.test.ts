@@ -62,7 +62,7 @@ describe('editor', () => {
   test('status shows layout and pdf time', async () => {
     await open(lab)
     await s.page.waitForTimeout(300)
-    expect(await status()).toMatch(/^2 pages, (under )?[\d.]+ ms, PDF (under )?[\d.]+ ms$/)
+    expect(await status()).toMatch(/^2 pages, \d+ words, [\d.]+ (µs|ms), PDF [\d.]+ (µs|ms)$/)
   })
 
   test('the first page holds drawings and turned text', async () => {
@@ -96,8 +96,8 @@ describe('editor', () => {
 
   test('a mistake shows the line and keeps the last good pages', async () => {
     await open(lab)
-    await typeBeforeEnd('\\begin{tikzpicture}\\draw[wobble] (0,0) -- (1,1);\\end{tikzpicture}')
-    expect(await status()).toContain('Unsupported drawing option on line')
+    await typeBeforeEnd('\\begin{tikzpicture}\\end{quote}')
+    expect(await status()).toContain('on line')
     expect(await status()).toContain('Pages show the last good version')
     expect(await s.page.locator('article').count()).toBe(2)
   })
@@ -119,13 +119,13 @@ describe('editor', () => {
     await s.page.reload()
     await s.page.waitForSelector('.cm-content')
     await s.page.waitForTimeout(200)
-    expect(await status()).toContain('Unknown command on line 3')
+    expect(await status()).toContain('Ignored \\nope on line 3')
   })
 
   test('fixing a mistake brings the pages back', async () => {
     await open(lab)
     await typeBeforeEnd('\\nope')
-    expect(await status()).toContain('Unknown command')
+    expect(await status()).toContain('Ignored \\nope')
     for (let i = 0; i < 5; i++) await s.page.keyboard.press('Backspace')
     await s.page.waitForTimeout(300)
     expect(await status()).toStartWith('2 pages, ')

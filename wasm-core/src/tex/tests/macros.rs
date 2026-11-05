@@ -33,17 +33,40 @@ fn provide_does_not_replace() {
 
 #[test]
 fn declared_operators_match_operatorname() {
-    check(&[("\\DeclareMathOperator{\\foo}{foo}\\foo", "\\operatorname{foo}"), ("\\DeclareMathOperator{\\Tr}{Tr}\\Tr x", "\\operatorname{Tr}x"), ("\\DeclareMathOperator*{\\am}{argmax}\\am_x", "\\operatorname*{argmax}_x")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("\\DeclareMathOperator{\\foo}{foo}\\foo", "\\operatorname{foo}"),
+            ("\\DeclareMathOperator{\\Tr}{Tr}\\Tr x", "\\operatorname{Tr}x"),
+            ("\\DeclareMathOperator*{\\am}{argmax}\\am_x", "\\operatorname*{argmax}_x"),
+        ],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]
 fn paired_delimiters_work() {
-    check(&[("\\DeclarePairedDelimiter{\\abs}{\\lvert}{\\rvert}\\abs{x}", "\\lvert x\\rvert"), ("\\DeclarePairedDelimiter{\\abs}{\\lvert}{\\rvert}\\abs*{x}", "\\left\\lvert x\\right\\rvert")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("\\DeclarePairedDelimiter{\\abs}{\\lvert}{\\rvert}\\abs{x}", "\\lvert x\\rvert"),
+            ("\\DeclarePairedDelimiter{\\abs}{\\lvert}{\\rvert}\\abs*{x}", "\\left\\lvert x\\right\\rvert"),
+        ],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]
 fn document_commands_take_arguments() {
-    check(&[("\\NewDocumentCommand{\\a}{m}{#1^2}\\a{y}", "y^2"), ("\\NewDocumentCommand{\\a}{m m}{#2#1}\\a{x}{y}", "yx"), ("\\NewDocumentCommand{\\a}{s m}{\\IfBooleanTF{#1}{#2}{#2#2}}\\a{y}", "yy"), ("\\NewDocumentCommand{\\a}{s m}{\\IfBooleanTF{#1}{#2}{#2#2}}\\a*{y}", "y"), ("\\NewDocumentCommand{\\a}{o m}{\\IfNoValueTF{#1}{#2}{#1}}\\a{y}", "y"), ("\\NewDocumentCommand{\\a}{o m}{\\IfNoValueTF{#1}{#2}{#1}}\\a[z]{y}", "z")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("\\NewDocumentCommand{\\a}{m}{#1^2}\\a{y}", "y^2"),
+            ("\\NewDocumentCommand{\\a}{m m}{#2#1}\\a{x}{y}", "yx"),
+            ("\\NewDocumentCommand{\\a}{s m}{\\IfBooleanTF{#1}{#2}{#2#2}}\\a{y}", "yy"),
+            ("\\NewDocumentCommand{\\a}{s m}{\\IfBooleanTF{#1}{#2}{#2#2}}\\a*{y}", "y"),
+            ("\\NewDocumentCommand{\\a}{o m}{\\IfNoValueTF{#1}{#2}{#1}}\\a{y}", "y"),
+            ("\\NewDocumentCommand{\\a}{o m}{\\IfNoValueTF{#1}{#2}{#1}}\\a[z]{y}", "z"),
+        ],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]

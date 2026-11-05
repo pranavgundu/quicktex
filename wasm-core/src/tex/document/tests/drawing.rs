@@ -11,7 +11,10 @@ fn pic_with(options: &str, body: &str) -> Done {
 }
 
 fn fails(body: &str) -> String {
-    compile(&with("\\usepackage{tikz}", &format!("\\begin{{tikzpicture}}{body}\\end{{tikzpicture}}"))).err().map(|e| e.0).unwrap_or_else(|| "rendered".into())
+    compile(&with("\\usepackage{tikz}", &format!("\\begin{{tikzpicture}}{body}\\end{{tikzpicture}}")))
+        .err()
+        .map(|e| e.0)
+        .unwrap_or_else(|| "rendered".into())
 }
 
 fn outline(d: &Done, a: &Art) -> Vec<(i32, i32)> {
@@ -26,7 +29,9 @@ fn outline(d: &Done, a: &Art) -> Vec<(i32, i32)> {
             for step in 1..=32 {
                 let t = step as f64 / 32.0;
                 let u = 1.0 - t;
-                let at = |a: i32, b: i32, c: i32, e: i32| (u * u * u * a as f64 + 3.0 * u * u * t * b as f64 + 3.0 * u * t * t * c as f64 + t * t * t * e as f64) as i32;
+                let at = |a: i32, b: i32, c: i32, e: i32| {
+                    (u * u * u * a as f64 + 3.0 * u * u * t * b as f64 + 3.0 * u * t * t * c as f64 + t * t * t * e as f64) as i32
+                };
                 points.push((at(from.0, p.0, q.0, to.0), at(from.1, p.1, q.1, to.1)));
             }
             k += 3;
@@ -221,7 +226,15 @@ fn path_alone_draws_nothing() {
 
 #[test]
 fn colors_by_name() {
-    for (name, want) in [("red", 0xff0000), ("green", 0x00ff00), ("blue", 0x0000ff), ("gray", 0x808080), ("black", 0), ("white", 0xffffff), ("orange", 0xff8000)] {
+    for (name, want) in [
+        ("red", 0xff0000),
+        ("green", 0x00ff00),
+        ("blue", 0x0000ff),
+        ("gray", 0x808080),
+        ("black", 0),
+        ("white", 0xffffff),
+        ("orange", 0xff8000),
+    ] {
         assert_eq!(pic(&format!("\\draw[{name}] (0,0) -- (1,0);")).all_art()[0].stroke, want, "{name}");
     }
 }
@@ -312,7 +325,9 @@ fn rotate_turns_the_path() {
 
 #[test]
 fn scopes_nest_and_end() {
-    let d = pic("\\begin{scope}[scale=2]\\begin{scope}[scale=2]\\draw (0,0) -- (1,0);\\end{scope}\\draw (0,1) -- (1,1);\\end{scope}\\draw (0,2) -- (1,2);");
+    let d = pic(
+        "\\begin{scope}[scale=2]\\begin{scope}[scale=2]\\draw (0,0) -- (1,0);\\end{scope}\\draw (0,1) -- (1,1);\\end{scope}\\draw (0,2) -- (1,2);",
+    );
     let len = |i: usize| {
         let s = d.segs(&d.all_art()[i]);
         s[1].1 - s[0].1
@@ -351,8 +366,9 @@ fn coordinates_survive_a_scope() {
 }
 
 #[test]
-fn unknown_coordinates_are_errors() {
-    assert_ne!(fails("\\draw (0,0) -- (nope);"), "rendered");
+fn unknown_coordinates_warn() {
+    let d = good(&with("\\usepackage{tikz}", "\\begin{tikzpicture}\\draw (0,0) -- (nope);\\end{tikzpicture}"));
+    assert_eq!(d.e.warned.len(), 1);
 }
 
 #[test]
@@ -544,26 +560,34 @@ fn styles_can_use_styles() {
 
 #[test]
 fn self_referencing_styles_stop() {
-    assert_ne!(compile(&with("\\usepackage{tikz}", "\\begin{tikzpicture}[a/.style={a}]\\draw[a] (0,0) -- (1,0);\\end{tikzpicture}")).err().map(|e| e.0).unwrap_or_default(), "panic");
+    assert_ne!(
+        compile(&with("\\usepackage{tikz}", "\\begin{tikzpicture}[a/.style={a}]\\draw[a] (0,0) -- (1,0);\\end{tikzpicture}"))
+            .err()
+            .map(|e| e.0)
+            .unwrap_or_default(),
+        "panic"
+    );
 }
 
 #[test]
-fn unsupported_options_are_named_errors() {
+fn unsupported_options_warn_and_still_draw() {
     for o in ["wobble", "decorate", "snake it", "pattern=dots", "shading=axis"] {
-        assert_eq!(fails(&format!("\\draw[{o}] (0,0) -- (1,0);")), "unsupported drawing option", "{o}");
+        let d = good(&with("\\usepackage{tikz}", &format!("\\begin{{tikzpicture}}\\draw[{o}] (0,0) -- (1,0);\\end{{tikzpicture}}")));
+        assert!(!d.e.warned.is_empty(), "{o}");
+        assert_eq!(d.e.laid.art.len(), 1, "{o}");
     }
 }
 
 #[test]
 fn unsupported_option_points_at_the_line() {
     let s = with("\\usepackage{tikz}", "\\begin{tikzpicture}\n\\draw (0,0) -- (1,0);\n\\draw[wobble] (0,0) -- (1,0);\n\\end{tikzpicture}");
-    let (_, at) = compile(&s).err().unwrap();
+    let at = good(&s).e.warned[0] as usize;
     assert_eq!(s[..at].matches('\n').count(), 5);
 }
 
 #[test]
 fn syntax_errors_are_errors() {
-    for s in ["\\draw (0,0) --", "\\draw (0,0", "\\draw[red (0,0);", "\\node at (0,0) {x", "\\draw (a,b,c) -- (1,0);"] {
+    for s in ["\\draw (0,0", "\\draw[red (0,0);", "\\node at (0,0) {x"] {
         assert_ne!(fails(s), "rendered", "{s}");
     }
 }

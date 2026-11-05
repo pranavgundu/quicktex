@@ -1,8 +1,8 @@
 use super::plot::{AxisMap, Plot};
 use super::*;
-use core::cell::Cell;
 #[cfg(not(test))]
 use core::arch::wasm32::{f64x2_extract_lane, f64x2_splat, f64x2_sqrt};
+use core::cell::Cell;
 
 pub(super) const CM: f64 = 28.452756;
 const PI: f64 = core::f64::consts::PI;
@@ -13,6 +13,12 @@ const MAX_CALC_DEPTH: u32 = 32;
 const MAX_SWEEP: f64 = 1440.0;
 const OPTION_BUDGET: u32 = 20000;
 const MAX_UNITS: f64 = 1e8;
+
+fn ceil_steps(v: f64, step: f64) -> f64 {
+    let q = v / step;
+    let whole = q as i64 as f64;
+    if q > whole + 1e-9 { whole + 1.0 } else { whole }
+}
 
 fn to_units(v: f64) -> i32 {
     v.clamp(-MAX_UNITS, MAX_UNITS) as i32
@@ -80,7 +86,7 @@ fn ln(x: f64) -> f64 {
     let bits = x.to_bits();
     let mut e = ((bits >> 52) & 0x7ff) as i64 - 1023;
     let mut m = f64::from_bits((bits & 0x000f_ffff_ffff_ffff) | (1023u64 << 52));
-    if m > 1.4142135623730951 {
+    if m > core::f64::consts::SQRT_2 {
         m /= 2.0;
         e += 1;
     }
@@ -375,6 +381,16 @@ pub(super) fn evaluate(s: &[u8], x: f64, line: f64) -> Option<(f64, bool)> {
     Some((v, calc.unit))
 }
 
+pub(super) fn blank_label(options: &'static [u8]) -> bool {
+    let mut at = 0;
+    while let Some((key, value)) = next_option(options, &mut at) {
+        if key == b"label" {
+            return matches!(trim(value), b"" | b"{}");
+        }
+    }
+    false
+}
+
 pub(super) fn length_pt(s: &[u8]) -> Option<f64> {
     evaluate(trim(s), 0.0, 0.0).map(|v| v.0)
 }
@@ -400,6 +416,15 @@ pub(super) fn next_option(text: &'static [u8], at: &mut usize) -> Option<(&'stat
     loop {
         if *at >= text.len() {
             return None;
+        }
+        while *at < text.len() && text[*at].is_ascii_whitespace() {
+            *at += 1;
+        }
+        if text.get(*at) == Some(&b'%') {
+            while *at < text.len() && text[*at] != b'\n' {
+                *at += 1;
+            }
+            continue;
         }
         let start = *at;
         let mut depth = 0;
@@ -562,6 +587,7 @@ pub(in crate::tex) struct Pic {
     extent: Cell<Extent>,
     styles: Vec<(&'static [u8], &'static [u8])>,
     every_node: &'static [u8],
+    pub(super) saved: Vec<(&'static [u8], Option<Def>)>,
     pub(super) path: Vec<(u8, f64, f64)>,
     aside: Vec<(u8, f64, f64)>,
     art: Vec<Art>,
@@ -615,6 +641,28 @@ pub(super) fn color_by_name(name: &[u8]) -> Option<u32> {
     })
 }
 
+fn parse_color(text: &[u8], named: &dyn Fn(&[u8]) -> Option<u32>) -> Option<u32> {
+    if text == b"none" {
+        return Some(NO_COLOR);
+    }
+    let mut parts = text.split(|c| *c == b'!');
+    let mut color = named(parts.next()?)?;
+    while let Some(amount) = parts.next() {
+        let (percent, _) = evaluate(amount, 0.0, 0.0)?;
+        let other = match parts.next() {
+            Some(name) => named(name)?,
+            None => 0xffffff,
+        };
+        color = mix(color, other, percent.clamp(0.0, 100.0));
+    }
+    Some(color)
+}
+
+#[cfg(test)]
+fn color_value(text: &[u8]) -> Option<u32> {
+    parse_color(text, &color_by_name)
+}
+
 fn mix(a: u32, b: u32, percent: f64) -> u32 {
     let lane = |shift: u32| {
         let x = ((a >> shift) & 255) as f64;
@@ -622,23 +670,6 @@ fn mix(a: u32, b: u32, percent: f64) -> u32 {
         ((x * percent + y * (100.0 - percent)) / 100.0 + 0.5) as u32 & 255
     };
     (lane(16) << 16) | (lane(8) << 8) | lane(0)
-}
-
-pub(super) fn color_value(text: &[u8]) -> Option<u32> {
-    if text == b"none" {
-        return Some(NO_COLOR);
-    }
-    let mut parts = text.split(|c| *c == b'!');
-    let mut color = color_by_name(parts.next()?)?;
-    while let Some(amount) = parts.next() {
-        let (percent, _) = evaluate(amount, 0.0, 0.0)?;
-        let other = match parts.next() {
-            Some(name) => color_by_name(name)?,
-            None => 0xffffff,
-        };
-        color = mix(color, other, percent.clamp(0.0, 100.0));
-    }
-    Some(color)
 }
 
 fn tip_named(text: &'static [u8]) -> Option<Tip> {
@@ -739,7 +770,7 @@ impl Engine {
     pub(super) fn skip_gap(&mut self) {
         loop {
             self.skip_ws();
-            if self.peek() != b'%' {
+            if self.peek() != b'%' || self.at_end() {
                 return;
             }
             while !self.at_end() && self.peek() != b'\n' {
@@ -789,13 +820,25 @@ impl Engine {
     }
 
     pub(super) fn options(&mut self, pic: &mut Pic, look: &mut Look, text: &'static [u8], node: bool, depth: u32) -> R<()> {
+        if depth == 0 {
+            pic.budget = OPTION_BUDGET;
+        }
         if depth > MAX_STYLE_DEPTH || pic.budget == 0 {
             return self.fail_at(text, E_OPTION);
         }
+        let text = self.expand_text(text);
         let mut at = 0;
         while let Some((key, value)) = next_option(text, &mut at) {
             pic.budget = pic.budget.saturating_sub(1);
-            self.option(pic, look, key, value, node, depth)?;
+            let held = self.pos;
+            if self.option(pic, look, key, value, node, depth).is_err() {
+                if !matches!(self.err, E_OPTION | E_ARG | E_UNIT | E_COLOR) {
+                    return Err(());
+                }
+                self.err = 0;
+                self.note(held);
+                self.pos = held;
+            }
         }
         Ok(())
     }
@@ -808,7 +851,7 @@ impl Engine {
     }
 
     fn set_color(&mut self, look: &mut Look, value: &'static [u8], node: bool) -> R<()> {
-        let Some(color) = color_value(value) else {
+        let Some(color) = self.color_value(value) else {
             return self.fail_at(value, E_OPTION);
         };
         look.pen.stroke = color;
@@ -818,11 +861,21 @@ impl Engine {
         Ok(())
     }
 
-    pub(super) fn option(&mut self, pic: &mut Pic, look: &mut Look, key: &'static [u8], value: &'static [u8], node: bool, depth: u32) -> R<()> {
+    pub(super) fn option(
+        &mut self,
+        pic: &mut Pic,
+        look: &mut Look,
+        key: &'static [u8],
+        value: &'static [u8],
+        node: bool,
+        depth: u32,
+    ) -> R<()> {
         if let Some(name) = key.strip_suffix(b"/.style").or_else(|| key.strip_suffix(b"/.append style")) {
+            let value = self.lasting(value);
             if name == b"every node" {
                 pic.every_node = value;
             } else {
+                let name = self.lasting(name);
                 pic.styles.push((name, value));
             }
             return Ok(());
@@ -896,7 +949,7 @@ impl Engine {
                 }
             }
             b"fill" => {
-                let color = if value.is_empty() { Some(pen.stroke) } else { color_value(value) };
+                let color = if value.is_empty() { Some(pen.stroke) } else { self.color_value(value) };
                 let Some(color) = color else {
                     return self.fail_at(value, E_OPTION);
                 };
@@ -904,7 +957,7 @@ impl Engine {
             }
             b"color" => self.set_color(look, value, node)?,
             b"text" => {
-                let Some(color) = color_value(value) else {
+                let Some(color) = self.color_value(value) else {
                     return self.fail_at(value, E_OPTION);
                 };
                 look.node.color = color;
@@ -949,7 +1002,7 @@ impl Engine {
                     look.node.gap = if value.is_empty() { 0.0 } else { self.value(value)? };
                     return Ok(());
                 }
-                if let Some(color) = color_value(key) {
+                if let Some(color) = self.color_value(key) {
                     pen.stroke = color;
                     if node {
                         look.node.color = color;
@@ -1010,6 +1063,25 @@ impl Engine {
     }
 
     fn resolve(&mut self, pic: &Pic, look: &Look, text: &'static [u8]) -> R<(f64, f64)> {
+        let held = self.pos;
+        match self.resolve_exact(pic, look, text) {
+            Ok(point) => Ok(point),
+            Err(()) if matches!(self.err, E_OPTION | E_ARG | E_UNIT | E_MISPLACED) => {
+                self.err = 0;
+                self.note(held);
+                self.pos = held;
+                Ok((0.0, 0.0))
+            }
+            Err(()) => Err(()),
+        }
+    }
+
+    fn color_value(&self, text: &[u8]) -> Option<u32> {
+        parse_color(text, &|name| self.named_color(name))
+    }
+
+    fn resolve_exact(&mut self, pic: &Pic, look: &Look, text: &'static [u8]) -> R<(f64, f64)> {
+        let text = self.expand_text(text);
         let t = trim(text);
         if t.first() == Some(&b'$') && t.last() == Some(&b'$') && t.len() >= 2 {
             return self.calc_point(pic, look, &t[1..t.len() - 1]);
@@ -1223,7 +1295,9 @@ impl Engine {
                         cur = first;
                         continue;
                     }
+                    let nodes = self.skip_nodes()?;
                     let (p, keep) = self.target(pic, look, cur)?;
+                    self.segment_nodes(d, pic, look, nodes, cur, p)?;
                     let reached = pic.extent.get();
                     let from = border(cur, held, p);
                     let to = border(p, reached, cur);
@@ -1317,7 +1391,9 @@ impl Engine {
                         b"coordinate" => {
                             self.square_options()?;
                             self.skip_gap();
-                            let name = trim(self.nested(b'(', b')')?);
+                            let name = self.nested(b'(', b')')?;
+                            let name = trim(self.expand_text(name));
+                            let name = self.lasting(name);
                             pic.coords.push(Named { name, x: cur.0, y: cur.1, extent: Extent::default() });
                         }
                         b"node" => {
@@ -1328,22 +1404,132 @@ impl Engine {
                             self.node(d, pic, &mut l, Some(p))?;
                         }
                         b"to" => {
+                            self.square_options()?;
+                            let nodes = self.skip_nodes()?;
                             self.skip_gap();
                             let (p, keep) = self.target(pic, look, cur)?;
+                            self.segment_nodes(d, pic, look, nodes, cur, p)?;
                             pic.path.push((SEG_LINE, p.0, p.1));
                             last = cur;
                             if keep {
                                 cur = p;
                             }
                         }
+                        b"edge" => {
+                            self.square_options()?;
+                            let nodes = self.skip_nodes()?;
+                            self.skip_gap();
+                            let (p, _) = self.target(pic, look, cur)?;
+                            self.segment_nodes(d, pic, look, nodes, cur, p)?;
+                            pic.path.push((SEG_MOVE, cur.0, cur.1));
+                            pic.path.push((SEG_LINE, p.0, p.1));
+                            pic.path.push((SEG_MOVE, cur.0, cur.1));
+                        }
+                        b"grid" => {
+                            let step = self.square_options()?;
+                            let (p, keep) = self.target(pic, look, cur)?;
+                            self.add_grid(pic, look, cur, p, step);
+                            if keep {
+                                cur = p;
+                            }
+                        }
                         _ => {
                             self.pos = at;
-                            return self.fail(E_OPTION);
+                            self.note(at);
+                            if self.peek() == b'[' {
+                                self.square_options()?;
+                                continue;
+                            }
+                            return self.skip_statement();
                         }
                     }
                 }
             }
         }
+    }
+
+    fn skip_nodes(&mut self) -> R<Option<usize>> {
+        let mut first = None;
+        loop {
+            self.skip_gap();
+            if self.peek() != b'n' || self.slice(self.pos, (self.pos + 4).min(self.len)) != b"node" || self.peek_at(4).is_ascii_alphabetic()
+            {
+                return Ok(first);
+            }
+            first = first.or(Some(self.pos));
+            self.pos += 4;
+            self.square_options()?;
+            self.skip_gap();
+            if self.peek() == b'(' {
+                self.nested(b'(', b')')?;
+                self.skip_gap();
+            }
+            if self.peek() == b'{' {
+                self.group_text()?;
+            }
+        }
+    }
+
+    fn segment_nodes(&mut self, d: &mut Doc, pic: &mut Pic, look: &Look, nodes: Option<usize>, from: (f64, f64), to: (f64, f64)) -> R<()> {
+        let Some(at) = nodes else {
+            return Ok(());
+        };
+        let held = self.pos;
+        let extent = pic.extent.get();
+        self.pos = at;
+        while self.slice(self.pos, (self.pos + 4).min(self.len)) == b"node" && !self.peek_at(4).is_ascii_alphabetic() {
+            self.pos += 4;
+            let mut l = *look;
+            l.node.place = 0.5;
+            self.node_options(pic, &mut l)?;
+            let t = l.node.place;
+            let p = (from.0 + (to.0 - from.0) * t, from.1 + (to.1 - from.1) * t);
+            self.node(d, pic, &mut l, Some(p))?;
+            self.skip_gap();
+        }
+        self.pos = held;
+        pic.extent.set(extent);
+        Ok(())
+    }
+
+    fn add_grid(&mut self, pic: &mut Pic, look: &Look, from: (f64, f64), to: (f64, f64), options: &'static [u8]) {
+        let mut step = (CM, CM);
+        let mut at = 0;
+        while let Some((key, value)) = next_option(options, &mut at) {
+            if let Some(v) = length_pt(value).filter(|v| *v > 0.0) {
+                match key {
+                    b"step" => step = (v, v),
+                    b"xstep" => step.0 = v,
+                    b"ystep" => step.1 = v,
+                    _ => {}
+                }
+            }
+        }
+        let (a, b) = (look.m.undo(from), look.m.undo(to));
+        let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
+        let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
+        let mut lines = 0;
+        let mut x = ceil_steps(x0, step.0) * step.0;
+        while x <= x1 + 0.001 && lines < 2000 {
+            let (p, q) = (look.m.vector((x, y0)), look.m.vector((x, y1)));
+            let base = look.m.vector((0.0, 0.0));
+            let shift = (from.0 - look.m.vector(a).0 + base.0, from.1 - look.m.vector(a).1 + base.1);
+            pic.path.push((SEG_MOVE, p.0 + shift.0, p.1 + shift.1));
+            pic.path.push((SEG_LINE, q.0 + shift.0, q.1 + shift.1));
+            x += step.0;
+            lines += 1;
+        }
+        let mut y = ceil_steps(y0, step.1) * step.1;
+        while y <= y1 + 0.001 && lines < 4000 {
+            let (p, q) = (look.m.vector((x0, y)), look.m.vector((x1, y)));
+            let base = look.m.vector((0.0, 0.0));
+            let shift = (from.0 - look.m.vector(a).0 + base.0, from.1 - look.m.vector(a).1 + base.1);
+            pic.path.push((SEG_MOVE, p.0 + shift.0, p.1 + shift.1));
+            pic.path.push((SEG_LINE, q.0 + shift.0, q.1 + shift.1));
+            y += step.1;
+            lines += 1;
+        }
+        pic.path.push((SEG_MOVE, to.0, to.1));
     }
 
     fn round_size(&mut self) -> R<(f64, f64)> {
@@ -1361,7 +1547,7 @@ impl Engine {
                 b"radius" => r = (v, v),
                 b"x radius" => r.0 = v,
                 b"y radius" => r.1 = v,
-                _ => return self.fail_at(key, E_OPTION),
+                _ => {}
             }
         }
         Ok(r)
@@ -1388,7 +1574,7 @@ impl Engine {
                     let v = self.axis_value(value)?;
                     r = (v, v);
                 }
-                _ => return self.fail_at(key, E_OPTION),
+                _ => {}
             }
         }
         Ok((from, to, r))
@@ -1575,6 +1761,7 @@ impl Engine {
         let n = look.node;
         let (center, extent) = self.place_text(pic, &look.pen, b, p, &n);
         if !named.is_empty() {
+            let named = self.lasting(named);
             pic.coords.push(Named { name: named, x: center.0, y: center.1, extent });
         }
         Ok(())
@@ -1595,7 +1782,8 @@ impl Engine {
         pic.grow(center.0 - span.0, center.1 - span.1);
         pic.grow(center.0 + span.0, center.1 + span.1);
         if n.border || pen.fill != NO_COLOR {
-            let border = Pen { drawn: n.border, solid: pen.fill != NO_COLOR, start: first_look().pen.start, end: first_look().pen.end, ..*pen };
+            let border =
+                Pen { drawn: n.border, solid: pen.fill != NO_COLOR, start: first_look().pen.start, end: first_look().pen.end, ..*pen };
             core::mem::swap(&mut pic.path, &mut pic.aside);
             pic.path.clear();
             if n.round {
@@ -1652,9 +1840,10 @@ impl Engine {
         let mut depth = 0;
         loop {
             if self.at_end() {
-                return self.fail(E_END);
+                return if self.user_src { self.fail(E_END) } else { Ok(()) };
             }
             match self.peek() {
+                b'\\' if depth == 0 && self.slice(self.pos, (self.pos + 5).min(self.len)) == b"\\end{" => return Ok(()),
                 b'\\' => self.pos += 1,
                 b'{' => depth += 1,
                 b'}' => depth -= 1,
@@ -1670,30 +1859,82 @@ impl Engine {
 
     pub(super) fn scene(&mut self, d: &mut Doc, pic: &mut Pic, look: Look, closing: &[u8]) -> R<()> {
         self.enter()?;
+        let mark = pic.saved.len();
         loop {
             self.skip_gap();
             if self.at_end() {
+                if closing.is_empty() {
+                    self.depth -= 1;
+                    return Ok(());
+                }
                 return self.fail(E_END);
             }
             if self.peek() != b'\\' {
-                return self.fail(E_MISPLACED);
+                self.note(self.pos);
+                self.pos += 1;
+                continue;
             }
             let start = self.pos;
             self.pos += 1;
             let name = self.read_name();
+            let (p, len, user, depth) = (self.p, self.len, self.user_src, self.depth);
+            match self.statement(d, pic, &look, closing, mark, name, start) {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err(()) if matches!(self.err, E_DEPTH | E_END | E_ENV) => return Err(()),
+                Err(()) => {
+                    self.err = 0;
+                    (self.p, self.len, self.user_src, self.depth) = (p, len, user, depth);
+                    self.words.clear();
+                    d.word = None;
+                    self.note(start);
+                    self.pos = start;
+                    if name == b"begin" {
+                        self.pos += b"\\begin".len();
+                        let inner = self.loose_argument();
+                        self.skip_environment(inner);
+                    } else {
+                        self.skip_statement()?;
+                    }
+                }
+            }
+        }
+    }
+
+    fn statement(
+        &mut self,
+        d: &mut Doc,
+        pic: &mut Pic,
+        look: &Look,
+        closing: &[u8],
+        mark: usize,
+        name: &'static [u8],
+        start: usize,
+    ) -> R<bool> {
+        {
             match name {
-                b"draw" | b"fill" | b"filldraw" | b"path" => {
-                    let mut l = look;
-                    l.pen.drawn = matches!(name, b"draw" | b"filldraw");
-                    l.pen.solid = matches!(name, b"fill" | b"filldraw");
+                b"draw" | b"fill" | b"filldraw" | b"path" | b"shade" | b"shadedraw" => {
+                    let mut l = *look;
+                    l.pen.drawn = matches!(name, b"draw" | b"filldraw" | b"shadedraw");
+                    l.pen.solid = matches!(name, b"fill" | b"filldraw" | b"shade" | b"shadedraw");
                     let text = self.square_options()?;
                     self.options(pic, &mut l, text, false, 0)?;
                     pic.path.clear();
                     self.walk_path(d, pic, &l)?;
                     self.stroke_path(pic, &l.pen);
                 }
+                b"clip" | b"useasboundingbox" => {
+                    self.square_options()?;
+                    pic.path.clear();
+                    self.walk_path(d, pic, &look)?;
+                    pic.path.clear();
+                }
+                b"pic" | b"matrix" | b"graph" | b"datavisualization" => {
+                    self.note(start);
+                    self.skip_statement()?;
+                }
                 b"node" => {
-                    let mut l = look;
+                    let mut l = *look;
                     self.node_options(pic, &mut l)?;
                     self.node(d, pic, &mut l, None)?;
                     self.skip_gap();
@@ -1704,7 +1945,9 @@ impl Engine {
                 b"coordinate" => {
                     self.square_options()?;
                     self.skip_gap();
-                    let label = trim(self.nested(b'(', b')')?);
+                    let label = self.nested(b'(', b')')?;
+                    let label = trim(self.expand_text(label));
+                    let label = self.lasting(label);
                     self.skip_gap();
                     if self.word() != b"at" {
                         return self.fail(E_ARG);
@@ -1714,16 +1957,19 @@ impl Engine {
                         return self.fail(E_ARG);
                     }
                     let inner = self.nested(b'(', b')')?;
-                    let p = self.resolve(pic, &look, inner)?;
+                    let p = self.resolve(pic, look, inner)?;
                     pic.coords.push(Named { name: label, x: p.0, y: p.1, extent: Extent::default() });
                     self.skip_statement()?;
                 }
                 b"tikzset" => {
                     let text = self.group_text()?;
-                    let mut l = look;
+                    let mut l = *look;
                     self.options(pic, &mut l, text, false, 0)?;
                 }
                 b"addplot" if pic.axis.is_some() => self.skip_statement()?,
+                b"legend" if pic.axis.is_some() => {
+                    self.group_text()?;
+                }
                 b"addlegendentry" if pic.axis.is_some() => {
                     self.group_text()?;
                 }
@@ -1731,15 +1977,17 @@ impl Engine {
                     let (s, e) = self.raw_group()?;
                     match self.slice(s, e) {
                         b"scope" => {
-                            let mut l = look;
+                            let mut l = *look;
                             let text = self.square_options()?;
                             self.options(pic, &mut l, text, false, 0)?;
                             self.scene(d, pic, l, b"scope")?;
                         }
-                        b"axis" => self.axis(d, pic, &look)?,
+                        b"axis" => self.axis(d, pic, look)?,
                         _ => {
-                            self.pos = s;
-                            return self.fail(E_ENV);
+                            self.note(s);
+                            let name = self.slice(s, e);
+                            self.skip_options();
+                            self.scene(d, pic, *look, name)?;
                         }
                     }
                 }
@@ -1749,21 +1997,42 @@ impl Engine {
                         self.pos = s;
                         return self.fail(E_ENV);
                     }
+                    self.restore_defs(pic, mark)?;
                     self.depth -= 1;
-                    return Ok(());
+                    return Ok(true);
+                }
+                b"foreach" => self.scene_foreach(d, pic, *look)?,
+                b"pgfmathsetmacro" | b"pgfmathtruncatemacro" | b"pgfmathparse" => self.pgf_math(pic, name)?,
+                b"usetikzlibrary" | b"pgfplotsset" | b"tikzstyle" => self.scene_setting(pic, name, *look)?,
+                _ if self.conditional(name)? => {}
+                _ if super::is_definition(name) => {
+                    let mut c = d.ctx;
+                    let mut r = self.new_run(0, NONE, c);
+                    self.core(name, &mut r, &mut c)?;
                 }
                 _ => {
-                    self.pos = start;
-                    return self.fail(E_CMD);
+                    if let Some(def) = self.find_def(name) {
+                        self.enter()?;
+                        let body = self.expansion(&def, false)?;
+                        let src = self.push_src(body.as_ptr(), body.len() - 1);
+                        self.scene(d, pic, *look, b"")?;
+                        self.pop_src(src);
+                        self.depth -= 1;
+                        return Ok(false);
+                    }
+                    self.note(start);
+                    self.skip_loose();
                 }
             }
         }
+        Ok(false)
     }
 
     pub(super) fn picture(&mut self, d: &mut Doc, left: i32, width: i32) -> R<()> {
         let mut pic = core::mem::take(&mut self.store.pic);
         pic.coords.clear();
         pic.styles.clear();
+        pic.saved.clear();
         pic.every_node = b"";
         pic.path.clear();
         pic.art.clear();
@@ -1771,6 +2040,11 @@ impl Engine {
         pic.budget = OPTION_BUDGET;
         pic.axis = None;
         pic.line = width as f64 * self.doc.pt as f64 / 1000.0;
+        let mut look = first_look();
+        for i in 0..self.store.settings.len() {
+            let text = self.store.settings[i];
+            self.options(&mut pic, &mut look, text, false, 0)?;
+        }
         let done = self.picture_run(d, &mut pic, left, width);
         self.store.pic = pic;
         done
@@ -1790,6 +2064,24 @@ impl Engine {
         let k = 1000.0 / self.doc.pt as f64;
         let (dx, dy) = (to_units(-x0 * k), to_units(y0 * k));
         let (w, h) = (to_units((x1 - x0) * k), to_units((y1 - y0) * k));
+        if let Some(border) = d.standalone {
+            self.doc.w = w.saturating_add(2 * border);
+            self.doc.h = h.saturating_add(2 * border);
+            d.left = 0;
+            d.top = 0;
+            d.frame_left = 0;
+            d.frame_top = 0;
+            let bottom = border.saturating_add(h);
+            self.shift(s, e, dx, dy);
+            self.commit(d, s, e, border, bottom);
+            for i in 0..pic.art.len() {
+                let mut a = pic.art[i];
+                a.x += dx + border;
+                a.y += dy + bottom;
+                self.doc.art.push(a);
+            }
+            return Ok(());
+        }
         let y = self.place_line(d, h, 0);
         let x = left + if d.center { ((width - w) / 2).max(0) } else { 0 };
         self.shift(s, e, dx, dy);

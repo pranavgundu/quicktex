@@ -20,7 +20,8 @@ fn table_columns_line_up() {
 #[test]
 fn right_columns_align_right_edges() {
     let d = body("\\begin{tabular}{r}a\\\\bbb\\end{tabular}");
-    let right: Vec<i32> = d.all_items().iter().filter(|i| i.kind == IT_GLYPH).map(|i| i.x + crate::data::GLYPHS[i.a as usize].w as i32).collect();
+    let right: Vec<i32> =
+        d.all_items().iter().filter(|i| i.kind == IT_GLYPH).map(|i| i.x + crate::data::GLYPHS[i.a as usize].w as i32).collect();
     assert!((right[0] - right[3]).abs() <= 2, "{right:?}");
 }
 
@@ -70,8 +71,9 @@ fn table_size_switch_scales_it() {
 }
 
 #[test]
-fn table_column_spec_is_validated() {
-    assert!(compile(&article("\\begin{tabular}{q}a\\end{tabular}")).is_err());
+fn table_column_spec_accepts_the_common_forms() {
+    body("\\begin{tabular}{p{2cm}|m{1cm}@{}X*{2}{c}}a&b&c&d&e\\\\\\end{tabular}");
+    body("\\begin{tabular}{q}a\\end{tabular}");
 }
 
 #[test]
@@ -143,7 +145,10 @@ fn every_placement_option_is_accepted() {
 
 #[test]
 fn wide_floats_move_to_the_next_page_top() {
-    let s = format!("\\documentclass[twocolumn]{{article}}\\begin{{document}}a\\begin{{figure*}}[t]\\centering x\\caption{{C}}\\end{{figure*}}\n{}\\end{{document}}", words(1800));
+    let s = format!(
+        "\\documentclass[twocolumn]{{article}}\\begin{{document}}a\\begin{{figure*}}[t]\\centering x\\caption{{C}}\\end{{figure*}}\n{}\\end{{document}}",
+        words(1800)
+    );
     let d = good(&s);
     assert!(d.pages >= 2);
     let top = d.top_edge(1);
@@ -159,7 +164,10 @@ fn wide_float_on_the_last_page_gets_its_own_page() {
 
 #[test]
 fn wide_floats_span_both_columns() {
-    let s = format!("\\documentclass[twocolumn]{{article}}\\begin{{document}}\\begin{{figure*}}\\caption{{{}}}\\end{{figure*}}a\\newpage b\\end{{document}}", words(120));
+    let s = format!(
+        "\\documentclass[twocolumn]{{article}}\\begin{{document}}\\begin{{figure*}}\\caption{{{}}}\\end{{figure*}}a\\newpage b\\end{{document}}",
+        words(120)
+    );
     let d = good(&s);
     let last = d.pages - 1;
     assert!(d.right_edge(last) - d.left_edge(last) > 30000);
@@ -167,7 +175,10 @@ fn wide_floats_span_both_columns() {
 
 #[test]
 fn text_flows_below_a_wide_float() {
-    let s = format!("\\documentclass[twocolumn]{{article}}\\begin{{document}}a\\begin{{figure*}}x\\end{{figure*}}\n{}\\end{{document}}", words(1800));
+    let s = format!(
+        "\\documentclass[twocolumn]{{article}}\\begin{{document}}a\\begin{{figure*}}x\\end{{figure*}}\n{}\\end{{document}}",
+        words(1800)
+    );
     let d = good(&s);
     let ys = d.baselines(1);
     assert!(ys.len() > 10);
@@ -181,7 +192,10 @@ fn text_flows_below_a_wide_float() {
 #[test]
 fn a_float_too_tall_for_the_column_moves_on() {
     let tall: String = (0..30).map(|_| "\\draw (0,0) -- (0,1);").collect();
-    let s = format!("{}\n\n\\begin{{figure}}\\begin{{tikzpicture}}\\draw (0,0) -- (0,20);{tall}\\end{{tikzpicture}}\\end{{figure}}", words(700));
+    let s = format!(
+        "{}\n\n\\begin{{figure}}\\begin{{tikzpicture}}\\draw (0,0) -- (0,20);{tall}\\end{{tikzpicture}}\\end{{figure}}",
+        words(700)
+    );
     let d = good(&with("\\usepackage{tikz}", &s));
     assert!(d.pages >= 2);
     let art_pages: Vec<usize> = (0..d.pages).map(|p| d.art(p).len()).collect();

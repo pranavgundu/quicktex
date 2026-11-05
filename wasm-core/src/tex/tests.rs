@@ -24,11 +24,7 @@ pub(crate) fn output(e: &Engine, size: usize) -> String {
 pub(crate) fn render_with(e: &mut Engine, s: &str, display: bool) -> Rendered {
     let n = feed(e, s);
     let size = e.render(n, display);
-    if size >= 0 {
-        Ok(output(e, size as usize))
-    } else {
-        Err((output(e, (-size) as usize), e.error_pos()))
-    }
+    if size >= 0 { Ok(output(e, size as usize)) } else { Err((output(e, (-size) as usize), e.error_pos())) }
 }
 
 pub(crate) fn inline(s: &str) -> Rendered {

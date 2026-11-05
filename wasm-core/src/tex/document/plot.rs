@@ -266,7 +266,7 @@ impl Engine {
                 b"xtick" => a.ticks[0] = value,
                 b"ytick" => a.ticks[1] = value,
                 b"enlargelimits" => a.enlarge = value != b"false",
-                _ => return self.fail_at(key, E_OPTION),
+                _ => self.note(self.pos),
             }
         }
         if !a.only {
@@ -286,7 +286,8 @@ impl Engine {
         l.pen = plain(0, 0.4);
         let mut plot = Plot { s: 0, e: 0, pen: l.pen, mark: MARK_NONE, size: 2.0, lines: true };
         if text.is_empty() || plus {
-            const CYCLE: [(u32, u8); 5] = [(0x0000ff, MARK_DOT), (0xff0000, MARK_SQUARE), (0xbf8040, MARK_TRIANGLE), (0x000000, MARK_RING), (0x008080, MARK_BOX)];
+            const CYCLE: [(u32, u8); 5] =
+                [(0x0000ff, MARK_DOT), (0xff0000, MARK_SQUARE), (0xbf8040, MARK_TRIANGLE), (0x000000, MARK_RING), (0x008080, MARK_BOX)];
             let (color, mark) = CYCLE[*cycle % CYCLE.len()];
             *cycle += 1;
             l.pen.stroke = color;
@@ -315,7 +316,8 @@ impl Engine {
                     let Some(i) = value.iter().position(|c| *c == b':') else {
                         return self.fail_at(value, E_OPTION);
                     };
-                    let (Some((f, _)), Some((t, _))) = (evaluate(trim(&value[..i]), 0.0, 0.0), evaluate(trim(&value[i + 1..]), 0.0, 0.0)) else {
+                    let (Some((f, _)), Some((t, _))) = (evaluate(trim(&value[..i]), 0.0, 0.0), evaluate(trim(&value[i + 1..]), 0.0, 0.0))
+                    else {
                         return self.fail_at(value, E_OPTION);
                     };
                     from = f;
@@ -370,7 +372,9 @@ impl Engine {
                 let Some(comma) = inner.iter().position(|c| *c == b',') else {
                     return self.fail_at(inner, E_ARG);
                 };
-                let (Some((x, _)), Some((y, _))) = (evaluate(trim(&inner[..comma]), 0.0, 0.0), evaluate(trim(&inner[comma + 1..]), 0.0, 0.0)) else {
+                let (Some((x, _)), Some((y, _))) =
+                    (evaluate(trim(&inner[..comma]), 0.0, 0.0), evaluate(trim(&inner[comma + 1..]), 0.0, 0.0))
+                else {
                     return self.fail_at(inner, E_UNIT);
                 };
                 pic.points.push((x, y));
@@ -395,17 +399,40 @@ impl Engine {
                 return self.fail(E_END);
             }
             if self.peek() != b'\\' {
-                return self.fail(E_MISPLACED);
+                self.pos += 1;
+                continue;
             }
+            let at = self.pos;
             self.pos += 1;
             match self.read_name() {
-                b"addplot" => self.add_plot(pic, look, a, &mut cycle)?,
+                b"addplot" => {
+                    if self.add_plot(pic, look, a, &mut cycle).is_err() {
+                        if matches!(self.err, E_END | E_DEPTH) {
+                            return Err(());
+                        }
+                        self.err = 0;
+                        self.note(at);
+                        self.pos = at;
+                        self.skip_statement()?;
+                    }
+                }
                 b"addlegendentry" => {
                     let text = self.group_text()?;
                     pic.entries.push(text);
                 }
                 b"end" => return Ok(()),
-                _ => self.skip_statement()?,
+                b"legend" => {
+                    let text = self.group_text()?;
+                    let mut start = 0;
+                    for i in 0..=text.len() {
+                        if i == text.len() || text[i] == b',' {
+                            pic.entries.push(trim(&text[start..i]));
+                            start = i + 1;
+                        }
+                    }
+                }
+                b"node" | b"draw" | b"fill" | b"filldraw" | b"path" | b"coordinate" | b"clip" | b"foreach" => self.skip_statement()?,
+                _ => self.skip_loose(),
             }
         }
     }
@@ -438,7 +465,7 @@ impl Engine {
         if !text.is_empty() {
             for part in text.split(|c| *c == b',') {
                 let Some((v, _)) = evaluate(trim(part), 0.0, 0.0) else {
-                    return self.fail_at(text, E_OPTION);
+                    continue;
                 };
                 if count < MAX_TICKS {
                     out[count] = v;

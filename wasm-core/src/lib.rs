@@ -2,6 +2,7 @@
 
 extern crate alloc;
 
+#[rustfmt::skip]
 mod data;
 mod emit;
 mod packages;
@@ -45,9 +46,7 @@ unsafe impl GlobalAlloc for Bump {
             if next > *end {
                 let need = (next - *end + 0xffff) >> 16;
                 let pages = need.max(wasm32::memory_size(0));
-                if wasm32::memory_grow(0, pages) == usize::MAX
-                    && wasm32::memory_grow(0, need) == usize::MAX
-                {
+                if wasm32::memory_grow(0, pages) == usize::MAX && wasm32::memory_grow(0, need) == usize::MAX {
                     return core::ptr::null_mut();
                 }
                 *end = wasm32::memory_size(0) << 16;
@@ -88,10 +87,7 @@ unsafe impl GlobalAlloc for Bump {
 
 #[cfg(not(test))]
 #[global_allocator]
-static ALLOC: Bump = Bump {
-    top: UnsafeCell::new(0),
-    end: UnsafeCell::new(0),
-};
+static ALLOC: Bump = Bump { top: UnsafeCell::new(0), end: UnsafeCell::new(0) };
 
 #[cfg(not(test))]
 #[panic_handler]
@@ -150,6 +146,18 @@ extern "C" fn qt_pdf() -> i32 {
 #[unsafe(no_mangle)]
 extern "C" fn qt_use(len: usize) -> i32 {
     engine().use_session_package(len)
+}
+
+#[cfg(not(test))]
+#[unsafe(no_mangle)]
+extern "C" fn qt_names() -> i32 {
+    engine().command_list()
+}
+
+#[cfg(not(test))]
+#[unsafe(no_mangle)]
+extern "C" fn qt_warnings() -> i32 {
+    engine().warning_list()
 }
 
 #[cfg(not(test))]

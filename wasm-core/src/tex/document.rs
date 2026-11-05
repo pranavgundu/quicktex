@@ -1,5 +1,8 @@
 use super::*;
 
+mod commands;
+pub(super) use commands::{accent_glyph, composed};
+mod control;
 mod figure;
 #[cfg(test)]
 mod tests;
@@ -19,7 +22,34 @@ const LIST_INDENT: i32 = 2500;
 const LABEL_GAP: i32 = 500;
 const QUOTE_INDENT: i32 = 2000;
 const DISPLAY_SKIP: i32 = 1000;
+const LOOSEST: i64 = 47;
+const WORST_LINE: i64 = 10_010 * 10_010;
 const OVERFULL: i64 = 1 << 40;
+
+struct Fit {
+    width: i32,
+    indent: i32,
+    ragged: bool,
+    space: i32,
+    stretch: i32,
+    shrink: i32,
+}
+
+impl Fit {
+    #[inline(always)]
+    fn cost(&self, slack: i64, gaps: i32) -> i64 {
+        if gaps == 0 {
+            return 1_000_000;
+        }
+        let room = (gaps as i64 * if slack >= 0 { self.stretch as i64 } else { self.shrink as i64 }).max(1);
+        if slack.abs() >= room * LOOSEST {
+            return WORST_LINE;
+        }
+        let ratio = slack.abs() * 1000 / room;
+        let badness = (ratio * ratio / 1000 * ratio / 10_000_000).min(10_000);
+        (10 + badness) * (10 + badness)
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(super) struct Word {
@@ -56,9 +86,27 @@ pub(super) const SEG_CURVE: u8 = 2;
 pub(super) const SEG_CLOSE: u8 = 3;
 pub(super) const NO_COLOR: u32 = u32::MAX;
 
+#[derive(Clone, Copy)]
+pub(super) struct Environment {
+    name: &'static [u8],
+    count: usize,
+    default: Option<&'static [u8]>,
+    begin: &'static [u8],
+    end: &'static [u8],
+}
+
 #[derive(Default)]
 pub(super) struct Store {
     pic: figure::Pic,
+    settings: Vec<&'static [u8]>,
+    notes: Vec<(u32, &'static [u8])>,
+    environments: Vec<Environment>,
+    theorems: Vec<(&'static [u8], &'static [u8], u32)>,
+    groups: Vec<(Ctx, u8, bool)>,
+    contents: Vec<commands::Contents>,
+    shown: Vec<commands::Contents>,
+    contents_text: Vec<u8>,
+    wanted: bool,
     held: Vec<float::Held>,
     held_items: Vec<Item>,
     held_art: Vec<Art>,
@@ -88,6 +136,7 @@ pub(super) struct Laid {
 enum Label {
     Bullet,
     Number(u32),
+    Cite(u32),
     Text(&'static [u8]),
 }
 
@@ -100,6 +149,18 @@ struct Doc {
     base: i32,
     dep: i32,
     fresh: bool,
+    preamble: bool,
+    open_groups: u32,
+    standalone: Option<i32>,
+    notes: u32,
+    body_font: u8,
+    lead: &'static [u8],
+    flow: (i32, i32, i32),
+    flowing: bool,
+    table_width: i32,
+    bare_list: bool,
+    steps: bool,
+    step_level: i32,
     skip: i32,
     page: u32,
     noindent: bool,
@@ -128,6 +189,7 @@ struct Doc {
     heading_gaps: [(i32, i32); 3],
     figures: u32,
     tables: u32,
+    algorithms: u32,
     float: u8,
 }
 
@@ -148,10 +210,53 @@ fn is_definition(name: &[u8]) -> bool {
     )
 }
 
+fn standalone_border(options: &'static [u8], pt: i32) -> i32 {
+    let mut at = 0;
+    while let Some((key, value)) = figure::next_option(options, &mut at) {
+        if key == b"border" {
+            let first = value.split(|c| *c == b' ').next().unwrap_or(value);
+            if let Some(v) = figure::length_pt(first) {
+                return (v * 1000.0 / pt as f64) as i32;
+            }
+        }
+    }
+    50
+}
+
+fn block_body(body: &[u8]) -> bool {
+    body.contains(&b'\\')
+        && [
+            &b"\\begin{"[..],
+            b"\\end{",
+            b"\\section",
+            b"\\subsection",
+            b"\\chapter",
+            b"\\vspace",
+            b"\\item",
+            b"\\newpage",
+            b"\\maketitle",
+            b"\\par ",
+        ]
+        .iter()
+        .any(|word| body.windows(word.len()).any(|w| w == *word))
+}
+
+fn open_ended(body: &[u8]) -> bool {
+    let count = |word: &[u8]| body.windows(word.len()).filter(|w| *w == word).count();
+    body.contains(&b'\\') && (count(b"\\item") > 0 || count(b"\\begin{") != count(b"\\end{"))
+}
+
 fn ignored_setting(name: &[u8]) -> bool {
     matches!(
         name,
-        b"pagestyle" | b"thispagestyle" | b"pagenumbering" | b"label" | b"bibliographystyle" | b"usetikzlibrary" | b"pgfplotsset" | b"graphicspath"
+        b"pagestyle"
+            | b"thispagestyle"
+            | b"pagenumbering"
+            | b"label"
+            | b"bibliographystyle"
+            | b"usetikzlibrary"
+            | b"pgfplotsset"
+            | b"graphicspath"
     )
 }
 
@@ -180,7 +285,32 @@ fn font_size(name: &[u8], pt: i32) -> Option<u16> {
 fn ends_paragraph(name: &[u8]) -> bool {
     matches!(
         name,
-        b"section"
+        b"chapter"
+            | b"part"
+            | b"paragraph"
+            | b"subparagraph"
+            | b"cleardoublepage"
+            | b"pagebreak"
+            | b"setlength"
+            | b"title"
+            | b"author"
+            | b"date"
+            | b"bibitem"
+            | b"tableofcontents"
+            | b"frame"
+            | b"newcommand"
+            | b"renewcommand"
+            | b"def"
+            | b"let"
+            | b"newenvironment"
+            | b"newtheorem"
+            | b"input"
+            | b"include"
+            | b"frametitle"
+            | b"titlepage"
+            | b"resizebox"
+            | b"scalebox"
+            | b"section"
             | b"subsection"
             | b"subsubsection"
             | b"begin"
@@ -206,7 +336,38 @@ fn contains(text: &[u8], part: &[u8]) -> bool {
 
 impl Engine {
     pub fn render_document(&mut self, len: usize) -> i32 {
+        self.labels.clear();
+        self.label_bytes.clear();
+        self.cites.clear();
+        self.store.contents.clear();
+        self.store.shown.clear();
+        self.store.contents_text.clear();
+        self.store.wanted = false;
+        self.unresolved = false;
+        let first = self.layout_document(len);
+        if !self.unresolved || first < 0 {
+            return first;
+        }
+        self.next_pass();
+        let second = self.layout_document(len);
+        if !self.store.wanted || second < 0 || self.store.contents == self.store.shown {
+            return second;
+        }
+        self.next_pass();
+        self.layout_document(len)
+    }
+
+    fn next_pass(&mut self) {
+        self.cites.clear();
+        core::mem::swap(&mut self.store.contents, &mut self.store.shown);
+        self.store.contents.clear();
+    }
+
+    fn layout_document(&mut self, len: usize) -> i32 {
         self.reset(len);
+        self.lenient = true;
+        self.mark = (0, [0; 3]);
+        self.spliced = 0;
         self.words.clear();
         self.doc.items.clear();
         self.doc.pages.clear();
@@ -215,6 +376,11 @@ impl Engine {
         self.doc.spun.clear();
         self.doc.art_pages.clear();
         self.store.held.clear();
+        self.store.settings.clear();
+        self.store.notes.clear();
+        self.store.groups.clear();
+        self.store.environments.clear();
+        self.store.theorems.clear();
         self.store.held_items.clear();
         self.store.held_art.clear();
         let ctx = Ctx { style: ST_T, font: 0, size: UNIT, scale: UNIT, color: 0, grp: 0 };
@@ -226,6 +392,18 @@ impl Engine {
             base: 0,
             dep: 0,
             fresh: true,
+            preamble: false,
+            open_groups: 0,
+            standalone: None,
+            notes: 0,
+            body_font: 0,
+            lead: b"",
+            flow: (0, 0, 0),
+            flowing: false,
+            table_width: 0,
+            bare_list: false,
+            steps: false,
+            step_level: 0,
             skip: 0,
             page: 1,
             noindent: false,
@@ -254,6 +432,7 @@ impl Engine {
             heading_gaps: [(1500, 900), (1200, 600), (1000, 400)],
             figures: 0,
             tables: 0,
+            algorithms: 0,
             float: 0,
         };
         self.set_paper(&mut d, b"");
@@ -394,7 +573,7 @@ impl Engine {
 
     fn package_line(&mut self, d: &mut Doc) -> R<()> {
         self.skip_ws();
-        let options = if self.peek() == b'[' { self.bracketed()? } else { b"" };
+        let options = if self.peek() == b'[' { self.loose_options() } else { b"" };
         let names = self.group_text()?;
         for part in names.split(|b| *b == b',') {
             let name = part.trim_ascii();
@@ -408,7 +587,7 @@ impl Engine {
                 _ if crate::packages::is_noop(name) => {}
                 _ => match crate::packages::find_package(name) {
                     Some(i) => self.load_package(i)?,
-                    None => return self.fail_at(name, E_PACKAGE),
+                    None => {}
                 },
             }
         }
@@ -416,8 +595,8 @@ impl Engine {
     }
 
     fn set_length(&mut self, d: &mut Doc) -> R<()> {
-        let name = self.group_text()?;
-        let value = self.group_text()?;
+        let name = self.loose_argument();
+        let value = self.loose_argument();
         let Some(v) = figure::length_pt(value) else {
             return Ok(());
         };
@@ -509,6 +688,10 @@ impl Engine {
                 return self.fail(E_END);
             }
             let width = d.text_w - narrow;
+            if d.preamble && self.peek() != b'\\' {
+                self.pos += 1;
+                continue;
+            }
             if self.peek() == b'$' && self.peek_at(1) == b'$' {
                 self.pos += 2;
                 let c = self.restyle(&d.ctx.clone(), ST_D);
@@ -517,28 +700,107 @@ impl Engine {
                 self.after_display(d);
                 continue;
             }
+            if self.peek() == b'}' && d.open_groups > 0 {
+                d.open_groups -= 1;
+                self.pos += 1;
+                if let Some((ctx, font, center)) = self.store.groups.pop() {
+                    (d.ctx, d.body_font, d.center) = (ctx, font, center);
+                }
+                continue;
+            }
+            if self.peek() == b'{' && self.group_holds_blocks() {
+                self.pos += 1;
+                self.open_group(d);
+                continue;
+            }
             if self.peek() != b'\\' {
-                self.paragraph(d, left, width)?;
+                let state = (self.p, self.len, self.user_src, self.depth, self.pos);
+                if self.paragraph(d, left, width).is_err() {
+                    self.recover(d, state, None)?;
+                }
                 continue;
             }
             let start = self.pos;
             self.pos += 1;
             let name = self.read_name();
             match name {
+                b"item" | b"bibitem" => {
+                    if !matches!(
+                        env,
+                        b"itemize" | b"enumerate" | b"description" | b"thebibliography" | b"itemize*" | b"enumerate*" | b"description*"
+                    ) {
+                        self.note(start);
+                        self.skip_options();
+                        continue;
+                    }
+                    self.pos = start;
+                    self.depth -= 1;
+                    return Ok(());
+                }
+                b"end" => {
+                    let (s, e) = self.raw_group()?;
+                    let found = self.slice(s, e);
+                    if env.is_empty() && found == b"document" {
+                        self.pos = self.len;
+                        continue;
+                    }
+                    if found != env {
+                        self.pos = start;
+                        return self.fail(E_ENV);
+                    }
+                    self.pos = start;
+                    self.depth -= 1;
+                    return Ok(());
+                }
+                b"begin" => {
+                    let state = (self.p, self.len, self.user_src, self.depth, start);
+                    let held = self.pos;
+                    if self.begin_block(d, left, narrow, start).is_err() {
+                        self.pos = held;
+                        let inner = self.loose_argument();
+                        self.pos = start;
+                        self.recover(d, state, Some(inner))?;
+                    }
+                }
                 b"documentclass" => {
                     self.skip_ws();
-                    let options = if self.peek() == b'[' { self.bracketed()? } else { b"" };
-                    self.group_text()?;
+                    let options = if self.peek() == b'[' { self.loose_options() } else { b"" };
+                    let class = self.loose_argument();
                     self.set_paper(d, options);
+                    d.preamble = true;
+                    if class == b"standalone" {
+                        d.standalone = Some(standalone_border(options, self.doc.pt));
+                    }
                 }
-                b"title" => d.title = self.group_text()?,
-                b"author" => d.author = self.group_text()?,
-                b"date" => d.date = self.group_text()?,
+                b"title" => {
+                    self.skip_ws();
+                    self.skip_options();
+                    d.title = self.loose_argument();
+                }
+                b"author" => {
+                    self.skip_ws();
+                    self.skip_options();
+                    d.author = self.loose_argument();
+                }
+                b"date" => {
+                    self.skip_ws();
+                    self.skip_options();
+                    d.date = self.loose_argument();
+                }
                 b"maketitle" => self.title_block(d)?,
                 b"section" => self.heading(d, 0, left, width)?,
                 b"subsection" => self.heading(d, 1, left, width)?,
                 b"subsubsection" => self.heading(d, 2, left, width)?,
-                b"newpage" | b"clearpage" => {
+                b"chapter" | b"part" => {
+                    if !d.fresh {
+                        self.new_page(d)?;
+                    }
+                    self.heading(d, 0, left, width)?;
+                }
+                b"paragraph" | b"subparagraph" => self.heading(d, 3, left, width)?,
+                b"newenvironment" | b"renewenvironment" => self.define_environment()?,
+                b"newtheorem" => self.define_theorem()?,
+                b"newpage" | b"clearpage" | b"cleardoublepage" | b"pagebreak" => {
                     if !d.fresh {
                         self.new_page(d)?;
                     }
@@ -558,6 +820,8 @@ impl Engine {
                 }
                 b"titlespacing" => self.title_spacing(d)?,
                 b"captionsetup" => {
+                    self.skip_ws();
+                    self.skip_options();
                     let options = self.group_text()?;
                     let mut at = 0;
                     while let Some((key, value)) = figure::next_option(options, &mut at) {
@@ -583,44 +847,134 @@ impl Engine {
                     self.place_display(d, b, left, width, None);
                     self.after_display(d);
                 }
-                b"item" => {
-                    if env != b"itemize" && env != b"enumerate" {
-                        return self.fail(E_MISPLACED);
+                b"resizebox" | b"scalebox" | b"rotatebox" => {
+                    self.skip_star();
+                    self.skip_ws();
+                    self.skip_options();
+                    self.loose_argument();
+                    if name == b"resizebox" {
+                        self.loose_argument();
                     }
-                    self.pos = start;
-                    self.depth -= 1;
-                    return Ok(());
+                    self.skip_ws();
+                    if self.peek() == b'{' {
+                        self.pos += 1;
+                        self.open_group(d);
+                    }
                 }
-                b"end" => {
-                    let (s, e) = self.raw_group()?;
-                    let found = self.slice(s, e);
-                    if env.is_empty() && found == b"document" {
-                        self.pos = self.len;
-                        continue;
+                b"frame" => {
+                    self.skip_overlay();
+                    self.skip_ws();
+                    self.skip_options();
+                    self.skip_ws();
+                    if !d.fresh {
+                        self.new_page(d)?;
                     }
-                    if found != env {
-                        self.pos = start;
-                        return self.fail(E_ENV);
+                    if self.peek() == b'{' {
+                        self.pos += 1;
+                        self.open_group(d);
                     }
-                    self.pos = start;
-                    self.depth -= 1;
-                    return Ok(());
                 }
-                b"begin" => self.begin_block(d, left, narrow, start)?,
+                b"tableofcontents" => {
+                    self.unresolved = true;
+                    self.store.wanted = true;
+                    self.contents(d, left, width)?;
+                }
+                b"frametitle" | b"framesubtitle" => {
+                    let text = self.loose_argument();
+                    let text = self.source_copy(text);
+                    self.block_reset();
+                    let c = self.sized(d, font_size(b"large", self.doc.pt).unwrap_or(1200));
+                    self.sub_text(d, text, &c, FONT_MAIN_BOLD)?;
+                    self.flush_word(d, false);
+                    self.set_lines(d, &c, left, width, 0, true, false);
+                    d.skip += 600;
+                }
+                b"titlepage" => self.title_block(d)?,
+                b"parindent" | b"parskip" | b"itemsep" | b"topsep" | b"parsep" | b"baselineskip" | b"tabcolsep" | b"arraystretch"
+                | b"columnsep" => {
+                    self.skip_ws();
+                    if self.peek() == b'=' {
+                        self.pos += 1;
+                    }
+                    self.skip_ws();
+                    while !self.at_end() && !matches!(self.peek(), b'\n' | b' ' | b'\\' | b'%') {
+                        self.pos += 1;
+                    }
+                }
                 _ if is_definition(name) => {
                     let mut c = d.ctx;
                     let mut r = self.new_run(0, NONE, c);
-                    self.core(name, &mut r, &mut c)?;
+                    let after = self.pos;
+                    if self.core(name, &mut r, &mut c).is_err() {
+                        self.err = 0;
+                        self.pos = after;
+                        if !d.preamble {
+                            self.note(start);
+                        }
+                        self.skip_arguments();
+                    }
                 }
-                _ if ignored_setting(name) => self.skip_argument()?,
-                b"tableofcontents" | b"today" => {}
+                _ if ignored_setting(name) && name != b"label" => self.skip_argument()?,
+                b"label" => {
+                    let key = self.loose_argument();
+                    self.add_label(key);
+                }
+                b"today" | b"hline" | b"cline" => {
+                    self.skip_arguments();
+                }
+                b"input" | b"include" => {
+                    self.note(start);
+                    self.skip_arguments();
+                }
+                b"let" => self.alias()?,
+                _ if !d.preamble && lookup(name).is_some_and(|sy| sy.kind == K_TEXT || sy.kind == K_SYM) => {
+                    self.pos = start;
+                    let state = (self.p, self.len, self.user_src, self.depth, start);
+                    if self.paragraph(d, left, width).is_err() {
+                        self.recover(d, state, None)?;
+                    }
+                }
+                _ if commands::silent_setting(name) => self.skip_arguments(),
+                b"tikzstyle" => self.preamble_style()?,
+                b"tikzset" => {
+                    let text = self.group_text()?;
+                    self.store.settings.push(text);
+                }
+                _ if self.conditional(name)? => {}
+                _ if d.preamble => self.skip_arguments(),
+                _ if d.steps && commands::step(name).is_some() => {
+                    let state = (self.p, self.len, self.user_src, self.depth, start);
+                    if self.algorithm_line(d, left, width, name).is_err() {
+                        self.recover(d, state, None)?;
+                    }
+                }
                 _ => {
                     if let Some(size) = font_size(name, self.doc.pt) {
                         d.ctx = self.sized(d, size);
                         continue;
                     }
+                    if let Some(def) = self.find_def(name) {
+                        if open_ended(def.body) {
+                            let body = self.expansion(&def, false)?;
+                            self.splice(&body[..body.len() - 1])?;
+                            continue;
+                        }
+                        if block_body(def.body) {
+                            self.enter()?;
+                            let body = self.expansion(&def, false)?;
+                            let body = self.source_copy(&body[..body.len() - 1]);
+                            let src = self.push_src(body.as_ptr(), body.len());
+                            self.blocks(d, left, narrow, b"")?;
+                            self.pop_src(src);
+                            self.depth -= 1;
+                            continue;
+                        }
+                    }
                     self.pos = start;
-                    self.paragraph(d, left, width)?;
+                    let state = (self.p, self.len, self.user_src, self.depth, start);
+                    if self.paragraph(d, left, width).is_err() {
+                        self.recover(d, state, None)?;
+                    }
                 }
             }
         }
@@ -640,9 +994,95 @@ impl Engine {
         let (s, e) = self.raw_group()?;
         let name = self.slice(s, e);
         let width = d.text_w - narrow;
+        if d.preamble && name != b"document" {
+            self.skip_environment(name);
+            return Ok(());
+        }
         match name {
-            b"document" => {}
-            b"itemize" | b"enumerate" => self.list_block(d, left, narrow, name)?,
+            b"document" => d.preamble = false,
+            b"itemize" | b"enumerate" | b"description" | b"thebibliography" | b"itemize*" | b"enumerate*" | b"description*" => {
+                self.skip_ws();
+                if self.peek() == b'[' {
+                    d.bare_list = figure::blank_label(self.loose_options());
+                }
+                if name == b"thebibliography" {
+                    self.skip_ws();
+                    if self.peek() == b'{' {
+                        self.loose_argument();
+                    }
+                    self.block_reset();
+                    let c = self.sized(d, font_size(b"Large", self.doc.pt).unwrap_or(1440));
+                    for ch in b"References" {
+                        self.put_char(d, &c, FONT_MAIN_BOLD, *ch as u32)?;
+                    }
+                    self.flush_word(d, false);
+                    d.skip += 1200;
+                    self.set_lines(d, &c, left, width, 0, true, false);
+                    d.skip += 600;
+                }
+                self.list_block(d, left, narrow, name)?
+            }
+            b"displaymath" | b"math" => {
+                let c = self.restyle(&d.ctx.clone(), ST_D);
+                let close: &[u8] = if name == b"math" { b"\\end{math}" } else { b"\\end{displaymath}" };
+                let b = self.display_until(&c, close)?;
+                self.place_display(d, b, left, width, None);
+                self.after_display(d);
+            }
+            b"CCSXML" => self.skip_environment(name),
+            b"verbatim" | b"verbatim*" | b"Verbatim" | b"lstlisting" | b"minted" | b"alltt" | b"comment" => {
+                if name == b"comment" {
+                    self.skip_environment(name);
+                } else {
+                    self.verbatim_block(d, left, width, name)?;
+                }
+            }
+            b"flushleft" | b"flushright" | b"titlepage" | b"spacing" | b"singlespace" | b"doublespace" | b"onehalfspace" | b"multicols"
+            | b"multicols*" | b"columns" | b"column" | b"landscape" | b"small" | b"footnotesize" | b"scriptsize" | b"large" | b"Large"
+            | b"sloppypar" | b"subequations" | b"adjustbox" | b"preview" | b"appendices" | b"keywords" | b"acks" | b"abstract*"
+            | b"resizebox" | b"wrapfigure" | b"wraptable" | b"subfigure" | b"subtable" | b"mdframed" | b"tcolorbox" | b"block"
+            | b"alertblock" | b"exampleblock" | b"frame" | b"sidewaystable" | b"sidewaysfigure" | b"threeparttable" | b"tablenotes"
+            | b"textblock" | b"textblock*" | b"letter" | b"otherlanguage" => {
+                self.skip_arguments();
+                if name == b"frame" && !d.fresh {
+                    self.new_page(d)?;
+                }
+                self.blocks(d, left, narrow, name)?;
+                self.close_env(name)?;
+            }
+            b"minipage" => {
+                self.skip_options();
+                self.loose_argument();
+                self.blocks(d, left, narrow, name)?;
+                self.close_env(name)?;
+            }
+            b"proof" => {
+                self.skip_options();
+                d.lead = b"Proof.";
+                self.blocks(d, left, narrow, name)?;
+                self.close_env(name)?;
+            }
+            b"tabularx" | b"tabulary" | b"tabular*" | b"longtable" | b"longtable*" | b"xltabular" | b"supertabular" => {
+                self.skip_options();
+                if name != b"longtable" && name != b"longtable*" && name != b"supertabular" {
+                    let text = self.loose_argument();
+                    d.table_width = self.table_width(text, width);
+                }
+                self.table_block(d, left, width, name)?;
+            }
+            b"algorithmic" => {
+                let outer = d.steps;
+                d.steps = true;
+                d.step_level = 0;
+                self.skip_options();
+                self.blocks(d, left, narrow, name)?;
+                self.close_env(name)?;
+                d.steps = outer;
+            }
+            b"picture" | b"pspicture" | b"pgfpicture" | b"filecontents" | b"filecontents*" | b"forest" | b"asy" | b"gnuplot" => {
+                self.note(start);
+                self.skip_environment(name);
+            }
             b"center" => {
                 let outer = d.center;
                 d.center = true;
@@ -653,8 +1093,8 @@ impl Engine {
                 d.skip = d.skip.max(CENTER_GAP);
             }
             b"quote" | b"quotation" => self.quote_block(d, left, narrow, name)?,
-            b"figure" | b"figure*" | b"table" | b"table*" => self.float_block(d, left, narrow, name)?,
-            b"tabular" => self.table_block(d, left, width)?,
+            b"figure" | b"figure*" | b"table" | b"table*" | b"algorithm" | b"algorithm*" => self.float_block(d, left, narrow, name)?,
+            b"tabular" => self.table_block(d, left, width, name)?,
             b"tikzpicture" => self.picture(d, left, width)?,
             b"abstract" => {
                 d.skip += 600;
@@ -677,16 +1117,82 @@ impl Engine {
                 let b = self.environment(&c)?.bx;
                 let number = if name == b"equation" {
                     d.equation += 1;
+                    self.set_marker_number(d.equation);
                     Some(d.equation)
                 } else {
                     None
                 };
+                let body = self.slice(start, self.pos);
+                self.scan_labels(body);
                 self.place_display(d, b, left, width, number);
                 self.after_display(d);
             }
             _ => {
-                self.pos = s;
-                return self.fail(E_ENV);
+                if let Some(row) = self.store.environments.iter().rev().find(|row| row.name == name).copied() {
+                    return self.run_environment(d, left, narrow, row);
+                }
+                if let Some(i) = self.store.theorems.iter().position(|row| row.0 == name) {
+                    return self.theorem_block(d, left, narrow, i, name);
+                }
+                self.note(start);
+                self.skip_options();
+                self.blocks(d, left, narrow, name)?;
+                self.close_env(name)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn theorem_block(&mut self, d: &mut Doc, left: i32, narrow: i32, index: usize, name: &'static [u8]) -> R<()> {
+        self.store.theorems[index].2 += 1;
+        let (_, title, count) = self.store.theorems[index];
+        self.skip_options();
+        let mut lead = Vec::with_capacity(title.len() + 8);
+        lead.extend_from_slice(title);
+        lead.push(b' ');
+        self.set_marker_number(count);
+        let mut digits = count;
+        let at = lead.len();
+        loop {
+            lead.insert(at, b'0' + (digits % 10) as u8);
+            digits /= 10;
+            if digits == 0 {
+                break;
+            }
+        }
+        lead.push(b'.');
+        d.lead = self.pooled(&lead);
+        let outer = d.body_font;
+        d.body_font = FONT_MAIN_ITALIC;
+        d.skip += 300;
+        self.blocks(d, left, narrow, name)?;
+        self.close_env(name)?;
+        d.body_font = outer;
+        d.skip += 300;
+        Ok(())
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn recover(&mut self, d: &mut Doc, state: (*const u8, usize, bool, u32, usize), inner: Option<&'static [u8]>) -> R<()> {
+        if matches!(self.err, E_END | E_BRACE | E_ENV | E_DEPTH) {
+            return Err(());
+        }
+        self.err = 0;
+        (self.p, self.len, self.user_src, self.depth) = (state.0, state.1, state.2, state.3);
+        self.pos = state.4;
+        self.note(state.4);
+        d.flowing = false;
+        self.words.clear();
+        self.items.clear();
+        d.word = None;
+        match inner {
+            Some(name) => self.skip_environment(name),
+            None => {
+                self.pos += 1;
+                while !self.at_end() && !self.blank_ahead() {
+                    self.pos += 1;
+                }
             }
         }
         Ok(())
@@ -701,6 +1207,7 @@ impl Engine {
     }
 
     fn list_block(&mut self, d: &mut Doc, left: i32, narrow: i32, name: &'static [u8]) -> R<()> {
+        let bare = core::mem::take(&mut d.bare_list);
         self.enter()?;
         d.skip += 400;
         let mut count = 0;
@@ -710,23 +1217,39 @@ impl Engine {
                 return self.fail(E_END);
             }
             if self.peek() != b'\\' {
-                return self.fail(E_MISPLACED);
+                self.blocks(d, left + LIST_INDENT, narrow + LIST_INDENT, name)?;
+                continue;
             }
             let start = self.pos;
             self.pos += 1;
             match self.read_name() {
-                b"item" => {
+                word @ (b"item" | b"bibitem") => {
                     count += 1;
                     self.skip_ws();
-                    d.label = Some(if self.peek() == b'[' {
-                        Label::Text(self.bracketed()?)
-                    } else if name == b"enumerate" {
-                        Label::Number(count)
+                    let label = if self.peek() == b'[' { Some(self.bracketed()?) } else { None };
+                    self.set_marker_number(count);
+                    if word == b"bibitem" {
+                        self.skip_ws();
+                        let key = self.loose_argument();
+                        let mut tagged = Vec::with_capacity(key.len() + 5);
+                        tagged.extend_from_slice(b"cite:");
+                        tagged.extend_from_slice(key);
+                        self.add_label(&tagged);
+                    }
+                    d.label = if let Some(text) = label {
+                        Some(Label::Text(text))
+                    } else if name == b"thebibliography" {
+                        Some(Label::Cite(count))
+                    } else if matches!(name, b"enumerate" | b"enumerate*") {
+                        Some(Label::Number(count))
+                    } else if bare {
+                        None
                     } else {
-                        Label::Bullet
-                    });
+                        Some(Label::Bullet)
+                    };
                     d.noindent = true;
                     self.blocks(d, left + LIST_INDENT, narrow + LIST_INDENT, name)?;
+                    d.label = None;
                     d.skip += 200;
                 }
                 b"end" => {
@@ -736,7 +1259,7 @@ impl Engine {
                 }
                 _ => {
                     self.pos = start;
-                    return self.fail(E_MISPLACED);
+                    self.blocks(d, left + LIST_INDENT, narrow + LIST_INDENT, name)?;
                 }
             }
         }
@@ -806,7 +1329,10 @@ impl Engine {
     }
 
     fn heading(&mut self, d: &mut Doc, level: usize, left: i32, width: i32) -> R<()> {
-        let star = self.skip_star();
+        let star = self.skip_star() || level == 3;
+        let level = level.min(2);
+        self.skip_ws();
+        self.skip_options();
         self.skip_ws();
         if self.peek() != b'{' {
             return self.fail(E_ARG);
@@ -825,8 +1351,10 @@ impl Engine {
                 self.put_number(d, &c, FONT_MAIN_BOLD, d.sections[i])?;
             }
             self.add_kern(d, sc(1000, c.scale));
+            self.set_marker_section(level, d.sections);
         }
         self.pos += 1;
+        let title = self.pos;
         let mut font = FONT_MAIN_BOLD;
         self.inline(d, &c, &mut font, true)?;
         self.flush_word(d, false);
@@ -835,6 +1363,9 @@ impl Engine {
             self.new_page(d)?;
         }
         self.set_lines(d, &c, left, width, 0, true, false);
+        if self.store.wanted && !star {
+            self.add_contents(d, level, title);
+        }
         d.skip += after;
         d.noindent = true;
         Ok(())
@@ -842,16 +1373,28 @@ impl Engine {
 
     fn paragraph(&mut self, d: &mut Doc, left: i32, width: i32) -> R<()> {
         let c = d.ctx;
-        let mut font = 0;
-        self.inline(d, &c, &mut font, false)?;
-        self.flush_word(d, false);
+        let mut font = d.body_font;
+        if !d.lead.is_empty() {
+            let lead = core::mem::take(&mut d.lead);
+            for word in lead.split(|ch| *ch == b' ') {
+                for ch in word {
+                    self.put_char(d, &c, FONT_MAIN_BOLD, *ch as u32)?;
+                }
+                self.flush_word(d, false);
+            }
+        }
         let indent = if d.noindent || d.center { 0 } else { d.parindent };
         if d.parskip > 0 && !d.noindent && !d.fresh {
             d.skip += d.parskip;
         }
         d.noindent = false;
-        self.set_lines(d, &c, left, width, indent, d.center, d.center);
-        Ok(())
+        d.flow = (left, width, indent);
+        d.flowing = true;
+        self.inline(d, &c, &mut font, false)?;
+        d.flowing = false;
+        self.flush_word(d, false);
+        self.set_lines(d, &c, left, width, d.flow.2, d.center, d.center);
+        self.flush_notes(d, left, width)
     }
 
     fn add_kern(&mut self, d: &mut Doc, kern: i32) {
@@ -903,6 +1446,9 @@ impl Engine {
             match ch {
                 b'}' => {
                     if !group {
+                        if d.open_groups > 0 {
+                            return Ok(());
+                        }
                         return self.fail(E_BRACE);
                     }
                     self.pos += 1;
@@ -973,20 +1519,34 @@ impl Engine {
                         return Ok(());
                     }
                 }
-                b'&' | b'^' | b'_' | b'#' => return self.fail(E_MISPLACED),
-                _ if ch < 0x80 => {
-                    if ch < 32 || ch == 127 {
-                        return self.fail(E_CHAR);
-                    }
+                b'&' | b'^' | b'_' | b'#' => {
+                    self.note(self.pos);
                     self.pos += 1;
                     self.put_char(d, c, *font, ch as u32)?;
+                }
+                _ if ch < 0x80 => {
+                    self.pos += 1;
+                    if ch < 32 || ch == 127 {
+                        continue;
+                    }
+                    let mut t = d.word.take().unwrap_or_else(|| self.close(self.end(), 0, 0, 0));
+                    self.text_glyph(c, *font, ch as u32, &mut t)?;
+                    let mut next = self.peek();
+                    while next.is_ascii_alphanumeric() {
+                        self.pos += 1;
+                        self.text_glyph(c, *font, next as u32, &mut t)?;
+                        next = self.peek();
+                    }
+                    t.e = self.end();
+                    d.word = Some(t);
                 }
                 _ => {
                     let tok = self.pos;
                     let (_, cp) = self.read_utf8()?;
-                    if glyph_id(*font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp)).is_none() {
-                        self.pos = tok;
-                        return self.fail(E_CHAR);
+                    if glyph_id(*font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp)).is_none() && composed(cp).is_none() {
+                        self.note(tok);
+                        self.put_char(d, c, *font, b'?' as u32)?;
+                        continue;
                     }
                     self.put_char(d, c, *font, cp)?;
                 }
@@ -1007,18 +1567,46 @@ impl Engine {
         Ok(())
     }
 
+    #[inline(never)]
+    fn text_macro(&mut self, d: &mut Doc, c: &Ctx, font: &mut u8, def: &Def) -> R<()> {
+        self.enter()?;
+        let body = self.expansion(def, false)?;
+        let body = self.source_copy(&body[..body.len() - 1]);
+        let src = self.push_src(body.as_ptr(), body.len());
+        self.inline(d, c, font, false)?;
+        if !self.at_end() {
+            if d.flowing {
+                let (left, width, indent) = d.flow;
+                self.flush_word(d, false);
+                self.set_lines(d, c, left, width, indent, d.center, d.center);
+                d.flow.2 = 0;
+                d.flowing = false;
+                self.blocks(d, left, d.text_w - width, b"")?;
+                d.flowing = true;
+            } else {
+                self.note(self.pos);
+            }
+        }
+        self.pop_src(src);
+        self.depth -= 1;
+        Ok(())
+    }
+
     fn inline_command(&mut self, d: &mut Doc, c: &mut Ctx, font: &mut u8, group: bool) -> R<bool> {
         let tok = self.pos;
         self.pos += 1;
         let name = self.read_name();
-        if !group && ends_paragraph(name) {
+        if !group && (ends_paragraph(name) || (d.steps && commands::step(name).is_some())) {
             self.pos = tok;
             return Ok(true);
         }
         if !self.defs.is_empty() {
             if let Some(def) = self.find_def(name) {
-                let b = self.text_def(&def, c, *font)?;
-                self.add_box(d, b);
+                if !group && d.flowing && open_ended(def.body) {
+                    self.pos = tok;
+                    return Ok(true);
+                }
+                self.text_macro(d, c, font, &def)?;
                 return Ok(false);
             }
         }
@@ -1044,8 +1632,11 @@ impl Engine {
             b"ttfamily" | b"tt" => *font = FONT_TYPEWRITER_REGULAR,
             b"sffamily" | b"sf" => *font = FONT_SANSSERIF_REGULAR,
             b"rmfamily" | b"rm" | b"normalfont" => *font = 0,
-            b"label" => self.skip_argument()?,
-            b"today" | b"centering" | b"protect" => {}
+            b"label" => {
+                let key = self.loose_argument();
+                self.add_label(key);
+            }
+            b"today" => {}
             b"LaTeX" | b"TeX" => {
                 for ch in name {
                     self.put_char(d, c, *font, *ch as u32)?;
@@ -1056,9 +1647,16 @@ impl Engine {
                     *c = self.restyle(&Ctx { size, ..*c }, ST_T);
                     return Ok(false);
                 }
-                let Some(sy) = lookup(name) else {
-                    self.pos = tok;
-                    return self.fail(E_CMD);
+                let known = lookup(name);
+                let ready = known.is_some_and(|sy| {
+                    matches!(sy.kind, K_TEXT | K_MUKERN | K_EMKERN | K_HSPACE | K_NOOP) || (sy.kind == K_SYM && sy.flags & F_TEXT != 0)
+                });
+                if !ready && (self.conditional(name)? || self.text_command(d, c, font, name, tok)?) {
+                    return Ok(false);
+                }
+                let Some(sy) = known else {
+                    self.ignore_command(tok);
+                    return Ok(false);
                 };
                 match sy.kind {
                     K_SYM if sy.flags & F_TEXT != 0 => self.put_char(d, c, *font, sy.cp)?,
@@ -1066,13 +1664,23 @@ impl Engine {
                     K_MUKERN => self.add_kern(d, Self::mu(c, sy.arg as i16 as i32)),
                     K_EMKERN => self.add_kern(d, sc(sy.arg as i32, c.scale)),
                     K_HSPACE => {
-                        let k = self.length_arg(c)?;
-                        self.add_kern(d, k);
+                        self.skip_star();
+                        let held = self.pos;
+                        match self.length_arg(c) {
+                            Ok(k) => self.add_kern(d, k),
+                            Err(()) => {
+                                self.err = 0;
+                                self.pos = held;
+                                self.loose_argument();
+                            }
+                        }
                     }
                     K_NOOP => {}
                     _ => {
+                        self.note(tok);
                         self.pos = tok;
-                        return self.fail(E_CMD);
+                        let b = self.arg(c)?;
+                        self.add_box(d, b);
                     }
                 }
             }
@@ -1118,7 +1726,10 @@ impl Engine {
             let c = d.ctx;
             let saved = d.word.take();
             let mark = self.end();
-            let done = self.put_char(d, &c, 0, b'(' as u32).and_then(|()| self.put_number(d, &c, 0, n)).and_then(|()| self.put_char(d, &c, 0, b')' as u32));
+            let done = self
+                .put_char(d, &c, 0, b'(' as u32)
+                .and_then(|()| self.put_number(d, &c, 0, n))
+                .and_then(|()| self.put_char(d, &c, 0, b')' as u32));
             if let (Ok(()), Some(t)) = (done, d.word.take()) {
                 self.commit(d, t.s, t.e, left + width - t.w, y);
             }
@@ -1149,12 +1760,10 @@ impl Engine {
     fn commit(&mut self, d: &Doc, s: u32, e: u32, x: i32, y: i32) {
         let dx = d.left + x;
         let dy = d.top + y;
-        for i in s as usize..e as usize {
-            let mut it = self.items[i];
-            it.x += dx;
-            it.y += dy;
-            self.doc.items.push(it);
-        }
+        let Some(items) = self.items.get(s as usize..e as usize) else {
+            return;
+        };
+        self.doc.items.extend(items.iter().map(|it| Item { x: it.x + dx, y: it.y + dy, ..*it }));
     }
 
     fn place_label(&mut self, d: &mut Doc, left: i32, y: i32) {
@@ -1174,6 +1783,10 @@ impl Engine {
                 None => Ok(()),
             },
             Label::Number(n) => self.put_number(d, &c, 0, n).and_then(|()| self.put_char(d, &c, 0, b'.' as u32)),
+            Label::Cite(n) => self
+                .put_char(d, &c, 0, b'[' as u32)
+                .and_then(|()| self.put_number(d, &c, 0, n))
+                .and_then(|()| self.put_char(d, &c, 0, b']' as u32)),
             Label::Text(text) => self.sub_text(d, text, &c, 0),
         };
         if let (Ok(()), Some(t)) = (made, d.word.take()) {
@@ -1208,7 +1821,9 @@ impl Engine {
         let (left, top) = (d.left, d.top);
         d.left = d.frame_left;
         d.top = d.frame_top;
-        self.put_number(d, &c, 0, d.page)?;
+        if d.standalone.is_none() {
+            self.put_number(d, &c, 0, d.page)?;
+        }
         if let Some(t) = d.word.take() {
             self.commit(d, t.s, t.e, (d.frame_w - t.w) / 2, d.frame_h + 3000);
         }
@@ -1221,32 +1836,29 @@ impl Engine {
         Ok(())
     }
 
-    fn set_lines(&mut self, d: &mut Doc, c: &Ctx, left: i32, width: i32, indent: i32, ragged: bool, center: bool) {
+    fn all_breaks(&mut self, fit: &Fit) {
         let n = self.words.len();
-        if n == 0 {
-            return;
-        }
-        let space = sc(SPACE, c.scale);
-        let stretch = sc(STRETCH, c.scale);
-        let shrink = sc(SHRINK, c.scale);
-        self.line_costs.clear();
-        self.line_costs.push((0, 0));
+        let words = &self.words[..n];
+        let costs = &mut self.line_costs;
+        costs.clear();
+        costs.push((0, 0));
         for j in 1..=n {
             let mut best = (i64::MAX, 0u32);
             let mut natural = 0;
             let mut gaps = 0;
-            let last = j == n || self.words[j - 1].forced;
+            let last = j == n || words[j - 1].forced;
             for i in (0..j).rev() {
-                if i + 1 < j && self.words[i].forced {
+                let word = &words[i];
+                if i + 1 < j && word.forced {
                     break;
                 }
-                natural += self.words[i].bx.w;
+                natural += word.bx.w;
                 if i + 1 < j {
-                    natural += space;
+                    natural += fit.space;
                     gaps += 1;
                 }
-                let avail = width - if i == 0 { indent } else { 0 };
-                let over = natural - gaps * shrink - avail;
+                let avail = fit.width - if i == 0 { fit.indent } else { 0 };
+                let over = natural - gaps * fit.shrink - avail;
                 if over > 0 && i + 1 < j {
                     break;
                 }
@@ -1255,23 +1867,29 @@ impl Engine {
                     OVERFULL + over as i64
                 } else if last {
                     0
-                } else if ragged {
+                } else if fit.ragged {
                     slack * slack / 1000
-                } else if gaps == 0 {
-                    1_000_000
                 } else {
-                    let room = gaps as i64 * if slack >= 0 { stretch as i64 } else { shrink as i64 };
-                    let ratio = slack.abs() * 1000 / room.max(1);
-                    let badness = (ratio * ratio / 1000 * ratio / 10_000_000).min(10_000);
-                    (10 + badness) * (10 + badness)
+                    fit.cost(slack, gaps)
                 };
-                let total = self.line_costs[i].0.saturating_add(cost);
+                let total = costs[i].0.saturating_add(cost);
                 if total < best.0 {
                     best = (total, i as u32);
                 }
             }
-            self.line_costs.push(best);
+            costs.push(best);
         }
+    }
+
+    fn set_lines(&mut self, d: &mut Doc, c: &Ctx, left: i32, width: i32, indent: i32, ragged: bool, center: bool) {
+        let n = self.words.len();
+        if n == 0 {
+            return;
+        }
+        let space = sc(SPACE, c.scale);
+        let shrink = sc(SHRINK, c.scale);
+        let fit = Fit { width, indent, ragged, space, stretch: sc(STRETCH, c.scale), shrink };
+        self.all_breaks(&fit);
         self.line_ends.clear();
         let mut j = n;
         while j > 0 {

@@ -1,7 +1,10 @@
 use super::*;
 
 fn plot(options: &str, body: &str) -> Done {
-    good(&with("\\usepackage{pgfplots}", &format!("\\begin{{tikzpicture}}\\begin{{axis}}[{options}]{body}\\end{{axis}}\\end{{tikzpicture}}")))
+    good(&with(
+        "\\usepackage{pgfplots}",
+        &format!("\\begin{{tikzpicture}}\\begin{{axis}}[{options}]{body}\\end{{axis}}\\end{{tikzpicture}}"),
+    ))
 }
 
 const LINE: &str = "\\addplot coordinates {(0,0) (1,1) (2,4)};";
@@ -65,7 +68,10 @@ fn width_and_height_set_the_size() {
 fn linewidth_sizes_relative_to_the_column() {
     let a = plot("width=\\linewidth", LINE);
     let b = plot("width=0.5\\linewidth", LINE);
-    let w = |d: &Done| d.all_art().iter().flat_map(|a| d.segs(a)).map(|p| p.1).max().unwrap() - d.all_art().iter().flat_map(|a| d.segs(a)).map(|p| p.1).min().unwrap();
+    let w = |d: &Done| {
+        d.all_art().iter().flat_map(|a| d.segs(a)).map(|p| p.1).max().unwrap()
+            - d.all_art().iter().flat_map(|a| d.segs(a)).map(|p| p.1).min().unwrap()
+    };
     assert!(w(&a) > w(&b));
 }
 
@@ -94,15 +100,46 @@ fn default_samples_are_twenty_five() {
 
 #[test]
 fn functions_can_use_every_operator() {
-    for f in ["x", "x+1", "2*x", "x/2", "x^2", "sin(x)", "cos(x)", "tan(x/2)", "exp(x)", "ln(x+2)", "sqrt(x+2)", "abs(x)", "0.4896*x + 0.0290", "sin(deg(x))", "-x", "floor(x)", "ceil(x)", "max(x,1)", "min(x,1)", "pow(x,2)", "pi*x"] {
+    for f in [
+        "x",
+        "x+1",
+        "2*x",
+        "x/2",
+        "x^2",
+        "sin(x)",
+        "cos(x)",
+        "tan(x/2)",
+        "exp(x)",
+        "ln(x+2)",
+        "sqrt(x+2)",
+        "abs(x)",
+        "0.4896*x + 0.0290",
+        "sin(deg(x))",
+        "-x",
+        "floor(x)",
+        "ceil(x)",
+        "max(x,1)",
+        "min(x,1)",
+        "pow(x,2)",
+        "pi*x",
+    ] {
         plot("", &format!("\\addplot[domain=0:1] {{{f}}};"));
     }
 }
 
 #[test]
-fn bad_functions_are_errors() {
+fn bad_functions_warn() {
     for f in ["x+", "nope(x)", "(x", "y"] {
-        assert!(compile(&with("\\usepackage{pgfplots}", &format!("\\begin{{tikzpicture}}\\begin{{axis}}\\addplot {{{f}}};\\end{{axis}}\\end{{tikzpicture}}"))).is_err(), "{f}");
+        assert!(
+            !good(&with(
+                "\\usepackage{pgfplots}",
+                &format!("\\begin{{tikzpicture}}\\begin{{axis}}\\addplot {{{f}}};\\end{{axis}}\\end{{tikzpicture}}")
+            ))
+            .e
+            .warned
+            .is_empty(),
+            "{f}"
+        );
     }
 }
 
@@ -198,17 +235,35 @@ fn empty_axes_render() {
 }
 
 #[test]
-fn unsupported_axis_options_are_errors() {
-    let e = compile(&with("\\usepackage{pgfplots}", "\\begin{tikzpicture}\\begin{axis}[wobble=3]\\addplot coordinates {(0,0)};\\end{axis}\\end{tikzpicture}")).err().unwrap();
-    assert_eq!(e.0, "unsupported drawing option");
+fn unsupported_axis_options_warn() {
+    assert!(
+        !good(&with(
+            "\\usepackage{pgfplots}",
+            "\\begin{tikzpicture}\\begin{axis}[wobble=3]\\addplot coordinates {(0,0)};\\end{axis}\\end{tikzpicture}"
+        ))
+        .e
+        .warned
+        .is_empty()
+    );
 }
 
 #[test]
 fn unclosed_axes_are_errors() {
-    assert!(compile(&with("\\usepackage{pgfplots}", "\\begin{tikzpicture}\\begin{axis}\\addplot coordinates {(0,0)};\\end{tikzpicture}")).is_err());
+    assert!(
+        compile(&with("\\usepackage{pgfplots}", "\\begin{tikzpicture}\\begin{axis}\\addplot coordinates {(0,0)};\\end{tikzpicture}"))
+            .is_err()
+    );
 }
 
 #[test]
-fn malformed_coordinates_are_errors() {
-    assert!(compile(&with("\\usepackage{pgfplots}", "\\begin{tikzpicture}\\begin{axis}\\addplot coordinates {(0,};\\end{axis}\\end{tikzpicture}")).is_err());
+fn malformed_coordinates_warn() {
+    assert!(
+        !good(&with(
+            "\\usepackage{pgfplots}",
+            "\\begin{tikzpicture}\\begin{axis}\\addplot coordinates {(0,};\\end{axis}\\end{tikzpicture}"
+        ))
+        .e
+        .warned
+        .is_empty()
+    );
 }

@@ -31,7 +31,23 @@ fn package_options_are_accepted() {
 
 #[test]
 fn every_package_command_has_a_working_form() {
-    let shapes = ["\\N", "\\N{x}", "\\N{x}{y}", "\\N{x}{y}{z}", "\\N*{x}", "\\N[2]{x}", "\\N[2]{x}{y}", "\\N{1}{m}", "\\N{1}", "\\N{m}", "\\N{H2O}", "\\N{1}{2}{m}", "\\N(x)", "\\N[x]", "\\N{\\frac{a}{b}}"];
+    let shapes = [
+        "\\N",
+        "\\N{x}",
+        "\\N{x}{y}",
+        "\\N{x}{y}{z}",
+        "\\N*{x}",
+        "\\N[2]{x}",
+        "\\N[2]{x}{y}",
+        "\\N{1}{m}",
+        "\\N{1}",
+        "\\N{m}",
+        "\\N{H2O}",
+        "\\N{1}{2}{m}",
+        "\\N(x)",
+        "\\N[x]",
+        "\\N{\\frac{a}{b}}",
+    ];
     let mut dead = Vec::new();
     for p in PACKAGES {
         for (name, _, _) in p.defs {
@@ -50,12 +66,15 @@ fn every_package_command_has_a_working_form() {
 
 #[test]
 fn package_commands_need_the_package() {
-    check(&[("\\dv{x}{t}", "physics"), ("\\ket{x}", "physics"), ("\\ce{H2O}", "mhchem"), ("\\si{m}", "siunitx"), ("\\num{1}", "siunitx")], |r| {
-        if inline(r.0).is_ok() {
-            return Err("works without the package".into());
-        }
-        inline(&format!("\\usepackage{{{}}}{}", r.1, r.0)).map(|_| ()).map_err(|e| format!("{e:?}"))
-    });
+    check(
+        &[("\\dv{x}{t}", "physics"), ("\\ket{x}", "physics"), ("\\ce{H2O}", "mhchem"), ("\\si{m}", "siunitx"), ("\\num{1}", "siunitx")],
+        |r| {
+            if inline(r.0).is_ok() {
+                return Err("works without the package".into());
+            }
+            inline(&format!("\\usepackage{{{}}}{}", r.1, r.0)).map(|_| ()).map_err(|e| format!("{e:?}"))
+        },
+    );
 }
 
 #[test]
@@ -119,12 +138,23 @@ fn numbers_with_exponents_use_times_ten() {
 
 #[test]
 fn unit_macros_build_names() {
-    check(&[("\\si{\\metre}", "\\si{m}"), ("\\si{\\kilo\\metre}", "\\si{km}"), ("\\si{\\second}", "\\si{s}"), ("\\si{\\kilo\\gram}", "\\si{kg}"), ("\\si{\\newton}", "\\si{N}")], |r| same(&format!("\\usepackage{{siunitx}}{}", r.0), &format!("\\usepackage{{siunitx}}{}", r.1)));
+    check(
+        &[
+            ("\\si{\\metre}", "\\si{m}"),
+            ("\\si{\\kilo\\metre}", "\\si{km}"),
+            ("\\si{\\second}", "\\si{s}"),
+            ("\\si{\\kilo\\gram}", "\\si{kg}"),
+            ("\\si{\\newton}", "\\si{N}"),
+        ],
+        |r| same(&format!("\\usepackage{{siunitx}}{}", r.0), &format!("\\usepackage{{siunitx}}{}", r.1)),
+    );
 }
 
 #[test]
 fn chemistry_subscripts_digits() {
-    check(&["H2O", "CO2", "H2SO4", "C6H12O6", "NaCl", "Fe^3+", "SO4^2-", "2H2 + O2 -> 2H2O", "A <=> B"], |s| valid(&format!("\\usepackage{{mhchem}}\\ce{{{s}}}")));
+    check(&["H2O", "CO2", "H2SO4", "C6H12O6", "NaCl", "Fe^3+", "SO4^2-", "2H2 + O2 -> 2H2O", "A <=> B"], |s| {
+        valid(&format!("\\usepackage{{mhchem}}\\ce{{{s}}}"))
+    });
     assert!(measure("\\usepackage{mhchem}\\ce{H2O}").depth > measure("\\usepackage{mhchem}\\ce{HO}").depth);
 }
 

@@ -13,10 +13,21 @@ fn map() -> AxisMap {
 
 #[test]
 fn ticks_land_on_nice_numbers() {
-    check(&[(0.0, 3.6, 200.0, 0.5), (-1.0, 2.0, 200.0, 0.5), (-0.5, 1.0, 100.0, 0.5), (0.0, 10.0, 200.0, 2.0), (0.0, 100.0, 200.0, 20.0), (0.0, 1.0, 200.0, 0.2), (0.0, 1000.0, 200.0, 200.0)], |r| {
-        let got = tick_step(r.0, r.1, r.2);
-        if (got - r.3).abs() < 1e-9 { Ok(()) } else { Err(format!("{got}")) }
-    });
+    check(
+        &[
+            (0.0, 3.6, 200.0, 0.5),
+            (-1.0, 2.0, 200.0, 0.5),
+            (-0.5, 1.0, 100.0, 0.5),
+            (0.0, 10.0, 200.0, 2.0),
+            (0.0, 100.0, 200.0, 20.0),
+            (0.0, 1.0, 200.0, 0.2),
+            (0.0, 1000.0, 200.0, 200.0),
+        ],
+        |r| {
+            let got = tick_step(r.0, r.1, r.2);
+            if (got - r.3).abs() < 1e-9 { Ok(()) } else { Err(format!("{got}")) }
+        },
+    );
 }
 
 #[test]
@@ -66,7 +77,23 @@ fn empty_ranges_get_a_unit_step() {
 
 #[test]
 fn numbers_print_without_trailing_zeros() {
-    check(&[(0.0, "0"), (1.0, "1"), (10.0, "10"), (1000.0, "1000"), (0.5, "0.5"), (0.25, "0.25"), (1.5, "1.5"), (-1.0, "-1"), (-0.5, "-0.5"), (2.5, "2.5"), (0.125, "0.125"), (0.0625, "0.0625")], |r| if format(r.0) == r.1 { Ok(()) } else { Err(format(r.0)) });
+    check(
+        &[
+            (0.0, "0"),
+            (1.0, "1"),
+            (10.0, "10"),
+            (1000.0, "1000"),
+            (0.5, "0.5"),
+            (0.25, "0.25"),
+            (1.5, "1.5"),
+            (-1.0, "-1"),
+            (-0.5, "-0.5"),
+            (2.5, "2.5"),
+            (0.125, "0.125"),
+            (0.0625, "0.0625"),
+        ],
+        |r| if format(r.0) == r.1 { Ok(()) } else { Err(format(r.0)) },
+    );
 }
 
 #[test]
@@ -116,6 +143,19 @@ fn diagonal_segments_keep_their_slope() {
 
 #[test]
 fn every_mark_name_resolves() {
-    check(&[("*", MARK_DOT), ("o", MARK_RING), ("square*", MARK_SQUARE), ("square", MARK_BOX), ("triangle*", MARK_TRIANGLE), ("triangle", MARK_DELTA), ("x", MARK_CROSS), ("+", MARK_PLUS), ("none", MARK_NONE)], |r| if mark_value(r.0.as_bytes()) == Some(r.1) { Ok(()) } else { Err("wrong".into()) });
+    check(
+        &[
+            ("*", MARK_DOT),
+            ("o", MARK_RING),
+            ("square*", MARK_SQUARE),
+            ("square", MARK_BOX),
+            ("triangle*", MARK_TRIANGLE),
+            ("triangle", MARK_DELTA),
+            ("x", MARK_CROSS),
+            ("+", MARK_PLUS),
+            ("none", MARK_NONE),
+        ],
+        |r| if mark_value(r.0.as_bytes()) == Some(r.1) { Ok(()) } else { Err("wrong".into()) },
+    );
     assert_eq!(mark_value(b"nope"), None);
 }

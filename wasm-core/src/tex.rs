@@ -344,6 +344,17 @@ pub struct Engine {
     err: u8,
     err_pos: usize,
     user_src: bool,
+    lenient: bool,
+    warned: Vec<u32>,
+    pool: Vec<Vec<u8>>,
+    pool_at: usize,
+    flags: Vec<(&'static [u8], bool)>,
+    labels: Vec<(u32, u32, u32)>,
+    label_bytes: Vec<u8>,
+    mark: (u8, [u32; 3]),
+    cites: Vec<Vec<u8>>,
+    unresolved: bool,
+    spliced: usize,
 }
 
 #[inline(always)]
@@ -424,6 +435,46 @@ fn glyph_id(font: u8, cp: u32) -> Option<u16> {
     }
 }
 
+fn plain_spec(spec: &[u8], out: &mut Vec<u8>, depth: u32) {
+    let group = |at: usize| {
+        let mut level = 0;
+        for (i, ch) in spec.iter().enumerate().skip(at) {
+            level += (*ch == b'{') as i32 - (*ch == b'}') as i32;
+            if level == 0 {
+                return i;
+            }
+        }
+        spec.len().saturating_sub(1)
+    };
+    let mut i = 0;
+    while i < spec.len() {
+        let ch = spec[i];
+        let braced = spec.get(i + 1) == Some(&b'{');
+        match ch {
+            b'@' | b'!' | b'>' | b'<' if braced => i = group(i + 1),
+            b'p' | b'm' | b'b' if braced => {
+                out.push(b'l');
+                i = group(i + 1);
+            }
+            b'*' if braced && depth < 3 => {
+                let end = group(i + 1);
+                let count = spec[i + 2..end].iter().filter(|c| c.is_ascii_digit()).fold(0usize, |v, c| v * 10 + (*c - b'0') as usize);
+                if spec.get(end + 1) == Some(&b'{') {
+                    let close = group(end + 1);
+                    for _ in 0..count.min(64) {
+                        plain_spec(&spec[end + 2..close], out, depth + 1);
+                    }
+                    i = close;
+                } else {
+                    i = end;
+                }
+            }
+            _ => out.push(ch),
+        }
+        i += 1;
+    }
+}
+
 #[inline]
 fn variant_font(fv: u8, s: &Sym) -> u8 {
     match fv {
@@ -479,9 +530,7 @@ fn stack_spec(cp: u32) -> Option<Stack> {
             bars: [(257, 300), (478, 521)],
             nbars: 2,
         },
-        0x27e8 | 0x27e9 | 0x2f | 0x5c => {
-            Stack { seq: Seq::Never, font: S4, top: 0, mid: 0, bot: 0, bars: [(0, 0), (0, 0)], nbars: 0 }
-        }
+        0x27e8 | 0x27e9 | 0x2f | 0x5c => Stack { seq: Seq::Never, font: S4, top: 0, mid: 0, bot: 0, bars: [(0, 0), (0, 0)], nbars: 0 },
         _ => return None,
     })
 }
@@ -530,6 +579,17 @@ impl Engine {
             err: 0,
             err_pos: 0,
             user_src: true,
+            lenient: false,
+            warned: Vec::new(),
+            pool: Vec::new(),
+            pool_at: 0,
+            flags: Vec::new(),
+            labels: Vec::new(),
+            label_bytes: Vec::new(),
+            mark: (0, [0; 3]),
+            cites: Vec::new(),
+            unresolved: false,
+            spliced: 0,
         }
     }
 
@@ -576,6 +636,13 @@ impl Engine {
         self.err = 0;
         self.err_pos = 0;
         self.user_src = true;
+        self.lenient = false;
+        self.warned.clear();
+        self.pool_at = 0;
+        self.flags.clear();
+        if let Some(first) = self.pool.first_mut() {
+            first.clear();
+        }
         self.call_pos = 0;
         self.reset_macros();
     }
@@ -649,7 +716,7 @@ impl Engine {
             let c = self.peek();
             if c == b' ' || c == b'\n' || c == b'\t' || c == b'\r' {
                 self.pos += 1;
-            } else if c == b'%' {
+            } else if c == b'%' && !self.at_end() {
                 while !self.at_end() && self.peek() != b'\n' {
                     self.pos += 1;
                 }
@@ -991,6 +1058,10 @@ impl Engine {
                         if self.core(name, r, c)? {
                             continue;
                         }
+                        if self.lenient {
+                            self.ignore_command(tok);
+                            continue;
+                        }
                         self.pos = tok;
                         return self.fail(E_CMD);
                     };
@@ -1192,14 +1263,18 @@ impl Engine {
                     return Ok(b);
                 }
                 let Some(s) = sym else {
+                    if self.lenient {
+                        self.ignore_command(tok);
+                        return Ok(self.close(self.end(), 0, 0, 0));
+                    }
                     self.pos = tok;
                     return self.fail(E_CMD);
                 };
                 let b = match s.kind {
                     K_SYM => self.sym_atom(c, s).bx,
                     K_MACRO => self.list_in(macro_text(s), s.arg as usize, *c)?,
-                    K_STYLE | K_COLOR | K_SIZE | K_OLDFONT | K_MUKERN | K_EMKERN | K_HSPACE | K_NOOP | K_INFIX | K_RIGHT
-                    | K_MIDDLE | K_CR | K_END | K_LIMITS | K_HLINE => {
+                    K_STYLE | K_COLOR | K_SIZE | K_OLDFONT | K_MUKERN | K_EMKERN | K_HSPACE | K_NOOP | K_INFIX | K_RIGHT | K_MIDDLE
+                    | K_CR | K_END | K_LIMITS | K_HLINE => {
                         self.pos = tok;
                         return self.fail(E_ARG);
                     }
@@ -1335,6 +1410,23 @@ impl Engine {
     }
 
     fn length_arg(&mut self, c: &Ctx) -> R<i32> {
+        if !self.lenient {
+            return self.exact_length_arg(c);
+        }
+        let held = self.pos;
+        match self.exact_length_arg(c) {
+            Ok(v) => Ok(v),
+            Err(()) if self.err == E_UNIT => {
+                self.err = 0;
+                self.pos = held;
+                self.loose_argument();
+                Ok(0)
+            }
+            Err(()) => Err(()),
+        }
+    }
+
+    fn exact_length_arg(&mut self, c: &Ctx) -> R<i32> {
         self.skip_ws();
         if self.peek() == b'{' {
             self.pos += 1;
@@ -2248,13 +2340,52 @@ impl Engine {
     fn text_glyph(&mut self, c: &Ctx, font: u8, cp: u32, t: &mut Bx) -> R<()> {
         let g = match glyph_id(font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp)) {
             Some(g) => g,
-            None => return self.fail(E_CHAR),
+            None => return self.missing_glyph(c, font, cp, t),
         };
         let m = &GLYPHS[g as usize];
         self.push_glyph(g, t.w, 0, c.grp);
         t.w += sc(m.w as i32, c.scale);
         t.h = t.h.max(sc(m.h as i32, c.scale));
         t.d = t.d.max(sc(m.d as i32, c.scale));
+        Ok(())
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn missing_glyph(&mut self, c: &Ctx, font: u8, cp: u32, t: &mut Bx) -> R<()> {
+        if let Some((base, accent)) = document::composed(cp) {
+            return self.overlay(c, font, base, accent, t);
+        }
+        if !self.lenient {
+            return self.fail(E_CHAR);
+        }
+        self.note(self.pos);
+        self.bare_glyph(c, font, b'?' as u32, t);
+        Ok(())
+    }
+
+    fn bare_glyph(&mut self, c: &Ctx, font: u8, cp: u32, t: &mut Bx) {
+        if let Some(g) = glyph_id(font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp)) {
+            let m = &GLYPHS[g as usize];
+            self.push_glyph(g, t.w, 0, c.grp);
+            t.w += sc(m.w as i32, c.scale);
+            t.h = t.h.max(sc(m.h as i32, c.scale));
+            t.d = t.d.max(sc(m.d as i32, c.scale));
+        }
+    }
+
+    fn overlay(&mut self, c: &Ctx, font: u8, base: u32, accent: u32, t: &mut Bx) -> R<()> {
+        let start = t.w;
+        self.bare_glyph(c, font, base, t);
+        let Some(g) = document::accent_glyph(accent) else {
+            return Ok(());
+        };
+        let m = &GLYPHS[g as usize];
+        let width = sc(m.w as i32, c.scale);
+        let tall = base < 0x80 && (base as u8).is_ascii_uppercase();
+        let rise = if tall { sc(240, c.scale) } else { 0 };
+        self.push_glyph(g, start + (t.w - start - width) / 2, -rise, c.grp);
+        t.h = t.h.max(sc(m.h as i32, c.scale) + rise);
         Ok(())
     }
 
@@ -2301,6 +2432,10 @@ impl Engine {
                         }
                     }
                     let Some(sy) = lookup(name) else {
+                        if self.lenient {
+                            self.ignore_command(tok);
+                            continue;
+                        }
                         self.pos = tok;
                         return self.fail(E_CMD);
                     };
@@ -2406,9 +2541,19 @@ impl Engine {
         let rbase = self.rows.len();
         let colbase = self.cols.len();
         let xbase = self.colx.len();
+        let mut plain = Vec::new();
         let spec_b: &[u8] = if array {
-            let (a, b) = self.raw_group()?;
-            self.slice(a, b)
+            self.skip_ws();
+            if self.peek() != b'{' {
+                return self.fail(E_ARG);
+            }
+            let spec = self.balanced()?;
+            if spec.contains(&b'{') {
+                plain_spec(spec, &mut plain, 0);
+                &plain
+            } else {
+                spec
+            }
         } else {
             b""
         };

@@ -3,29 +3,55 @@
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
   import {
     bracketMatching,
+    codeFolding,
+    foldGutter,
+    foldKeymap,
     HighlightStyle,
+    indentOnInput,
     StreamLanguage,
     syntaxHighlighting,
   } from '@codemirror/language'
   import { stex } from '@codemirror/legacy-modes/mode/stex'
-  import { EditorSelection, EditorState, Prec, StateEffect, StateField } from '@codemirror/state'
+  import { EditorState, Prec, StateEffect, StateField } from '@codemirror/state'
   import {
+    crosshairCursor,
     Decoration,
     drawSelection,
+    dropCursor,
     EditorView,
     highlightActiveLine,
     highlightActiveLineGutter,
     keymap,
     lineNumbers,
+    rectangularSelection,
   } from '@codemirror/view'
-  import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
+  import {
+    acceptCompletion,
+    autocompletion,
+    closeBrackets,
+    closeBracketsKeymap,
+    closeCompletion,
+    completionKeymap,
+    completionStatus,
+    selectedCompletion,
+  } from '@codemirror/autocomplete'
   import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
   import { tags } from '@lezer/highlight'
+  import { chevronDown, chevronRight } from '../lib/icons'
+  import { isPlain, latexCompletions, renderPreview } from './completions'
+  import { bold, deletePair, italic, latexEditing, smartEnter } from './editing'
 
   let {
     value = $bindable(),
     errorAt = null,
-  }: { value: string; errorAt?: number | null } = $props()
+    onsave,
+    oncursor,
+  }: {
+    value: string
+    errorAt?: number | null
+    onsave?: () => void
+    oncursor?: (at: number) => void
+  } = $props()
 
   let host: HTMLDivElement
   let view: EditorView | undefined
@@ -95,6 +121,42 @@
     '.cm-searchMatch.cm-searchMatch-selected': { backgroundColor: tint('code-number', 56) },
     '.cm-errorLine': { backgroundColor: tint('red', 10) },
     '.cm-errorMark': { backgroundColor: tint('red', 20), boxShadow: 'inset 0 -2px var(--color-red)' },
+    '.cm-matchingTag': { backgroundColor: 'var(--color-rule-strong)' },
+    '.cm-missingTag': { backgroundColor: tint('red', 24) },
+    '.cm-foldGutter .cm-gutterElement': { color: 'var(--color-quiet)', cursor: 'pointer', display: 'flex', alignItems: 'center' },
+    '.cm-foldGutter .cm-gutterElement:hover': { color: 'var(--color-ink)' },
+    '.cm-foldGutter svg': { width: '16px', height: '16px', fill: 'currentColor' },
+    '.cm-foldPlaceholder': {
+      backgroundColor: 'var(--color-rule)',
+      border: 'none',
+      borderRadius: 'var(--radius-control)',
+      color: 'var(--color-ink)',
+      margin: '0 8px',
+      padding: '0 8px',
+    },
+    '.cm-snippetField': { backgroundColor: tint('green', 16) },
+    '.cm-snippetFieldPosition': { borderLeft: '2px solid var(--color-green)' },
+    '.cm-tooltip': {
+      backgroundColor: 'var(--color-sheet)',
+      border: '1px solid var(--color-rule-strong)',
+      borderRadius: 'var(--radius-control)',
+      color: 'var(--color-ink)',
+      overflow: 'hidden',
+    },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul': { fontFamily: 'var(--font-mono)', fontSize: '14px', maxHeight: '320px', minWidth: '256px' },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li': {
+      alignItems: 'center',
+      display: 'flex',
+      gap: '16px',
+      lineHeight: '24px',
+      minHeight: '32px',
+      padding: '4px 8px',
+    },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': { backgroundColor: tint('green', 20), color: 'var(--color-ink)' },
+    '.cm-completionLabel': { flex: '1' },
+    '.cm-completionMatchedText': { color: 'var(--color-green)', fontWeight: '700', textDecoration: 'none' },
+    '.cm-completionDetail': { color: 'var(--color-quiet)', fontFamily: 'var(--font-serif)', fontStyle: 'normal', marginLeft: '0' },
+    '.cm-completionPreview': { color: 'var(--color-ink)', flex: 'none', fontSize: '16px', lineHeight: '24px' },
     '.cm-panels': { backgroundColor: 'var(--color-paper)', color: 'var(--color-ink)' },
     '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--color-rule-strong)' },
     '.cm-panel.cm-search': { padding: '8px 16px', fontFamily: 'var(--font-serif)', fontSize: '14px' },
@@ -119,25 +181,20 @@
     '.cm-button:hover': { borderColor: 'var(--color-ink)', backgroundColor: 'var(--color-paper)' },
   })
 
-  function closeEnvironment(target: EditorView) {
-    const { state } = target
-    const range = state.selection.main
-    if (!range.empty) return false
-    const line = state.doc.lineAt(range.head)
-    const before = line.text.slice(0, range.head - line.from)
-    const name = /\\begin\{([a-zA-Z*]+)\}(?:\{[^}]*\})?$/.exec(before)?.[1]
-    if (!name) return false
-    const text = state.doc.toString()
-    if (text.split(`\\end{${name}}`).length >= text.split(`\\begin{${name}}`).length) return false
-    const indent = /^[ \t]*/.exec(line.text)![0]
-    const inner = `\n${indent}  `
-    target.dispatch({
-      changes: { from: range.head, insert: `${inner}\n${indent}\\end{${name}}` },
-      selection: EditorSelection.cursor(range.head + inner.length),
-      scrollIntoView: true,
-      userEvent: 'input',
-    })
-    return true
+  function foldMarker(open: boolean) {
+    const node = document.createElement('span')
+    node.title = open ? 'Fold' : 'Unfold'
+    node.innerHTML = open ? chevronDown : chevronRight
+    return node
+  }
+
+  function enterAfterFullWord(target: EditorView) {
+    if (completionStatus(target.state) !== 'active') return false
+    const chosen = selectedCompletion(target.state)
+    if (!chosen || !isPlain(chosen)) return false
+    const head = target.state.selection.main.head
+    if (target.state.sliceDoc(Math.max(0, head - chosen.label.length), head) === chosen.label) closeCompletion(target)
+    return false
   }
 
   $effect(() => {
@@ -151,13 +208,38 @@
           highlightActiveLineGutter(),
           history(),
           drawSelection(),
+          dropCursor(),
+          rectangularSelection(),
+          crosshairCursor(),
+          EditorState.allowMultipleSelections.of(true),
+          indentOnInput(),
           bracketMatching(),
           closeBrackets(),
+          codeFolding({ placeholderText: 'folded' }),
+          foldGutter({ markerDOM: foldMarker }),
+          Prec.highest(
+            keymap.of([
+              { key: 'Enter', run: enterAfterFullWord },
+              { key: 'Tab', run: acceptCompletion },
+            ]),
+          ),
+          autocompletion({
+            override: [latexCompletions],
+            icons: false,
+            maxRenderedOptions: 40,
+            addToOptions: [{ render: renderPreview, position: 90 }],
+          }),
           search({ top: true }),
           highlightSelectionMatches(),
           EditorView.lineWrapping,
           StreamLanguage.define(stex),
-          EditorState.languageData.of(() => [{ closeBrackets: { brackets: ['{'] } }]),
+          EditorState.languageData.of(() => [
+            {
+              closeBrackets: { brackets: ['{', '$'], before: ')]}$:;>,' },
+              indentOnInput: /^\s*\\end\{[a-zA-Z*]+\}$/,
+            },
+          ]),
+          latexEditing,
           EditorState.phrases.of({
             next: 'Next',
             previous: 'Previous',
@@ -171,11 +253,28 @@
           syntaxHighlighting(palette),
           theme,
           errorMark,
-          Prec.high(keymap.of([{ key: 'Enter', run: closeEnvironment }])),
-          keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap, ...historyKeymap, indentWithTab]),
+          Prec.high(
+            keymap.of([
+              { key: 'Enter', run: smartEnter },
+              { key: 'Backspace', run: deletePair },
+              { key: 'Mod-b', run: bold },
+              { key: 'Mod-i', run: italic },
+              { key: 'Mod-s', run: () => (onsave?.(), true) },
+            ]),
+          ),
+          keymap.of([
+            ...closeBracketsKeymap,
+            ...completionKeymap,
+            ...defaultKeymap,
+            ...searchKeymap,
+            ...historyKeymap,
+            ...foldKeymap,
+            indentWithTab,
+          ]),
           EditorView.contentAttributes.of({ 'aria-label': 'LaTeX source', spellcheck: 'false', autocapitalize: 'off' }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) value = update.state.doc.toString()
+            if (update.selectionSet || update.docChanged) oncursor?.(update.state.selection.main.head)
           }),
         ],
       }),
@@ -190,6 +289,13 @@
   $effect(() => {
     view?.dispatch({ effects: setError.of(errorAt) })
   })
+
+  export function jump(at: number) {
+    if (!view) return
+    const anchor = Math.min(at, view.state.doc.length)
+    view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: 'start', yMargin: 32 }) })
+    view.focus()
+  }
 
   export function reveal(at: number) {
     if (!view) return

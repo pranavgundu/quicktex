@@ -14,7 +14,48 @@ const SEEDS: &[&str] = &[
     "\\text{a $x^2$ b}\\textcolor{red}{y}\\overbrace{a+b}^{n}",
 ];
 
-const TOKENS: &[&str] = &["{", "}", "^", "_", "\\", "&", "\\\\", "$", "#", "#1", "%", "~", "\\left", "\\right", "\\begin{matrix}", "\\end{matrix}", "\\frac", "\\sqrt[", "]", "[", "\\def\\a{\\a}", "\\newcommand", "é", "日", "😀", "\0", "\n", "\\text{", "\\color{", "\\hspace{", "\\usepackage{", "\\middle", "\\over", "\\limits", "\\phantom", "\\rule{", "'", "-", "1e999", "99999999999"];
+const TOKENS: &[&str] = &[
+    "{",
+    "}",
+    "^",
+    "_",
+    "\\",
+    "&",
+    "\\\\",
+    "$",
+    "#",
+    "#1",
+    "%",
+    "~",
+    "\\left",
+    "\\right",
+    "\\begin{matrix}",
+    "\\end{matrix}",
+    "\\frac",
+    "\\sqrt[",
+    "]",
+    "[",
+    "\\def\\a{\\a}",
+    "\\newcommand",
+    "é",
+    "日",
+    "😀",
+    "\0",
+    "\n",
+    "\\text{",
+    "\\color{",
+    "\\hspace{",
+    "\\usepackage{",
+    "\\middle",
+    "\\over",
+    "\\limits",
+    "\\phantom",
+    "\\rule{",
+    "'",
+    "-",
+    "1e999",
+    "99999999999",
+];
 
 #[test]
 fn mutated_formulas_never_panic() {
@@ -109,10 +150,20 @@ fn huge_rows_and_columns_render() {
 
 #[test]
 fn huge_numbers_stay_finite() {
-    check(&["\\hspace{99999999999em}", "\\hspace{-99999999999em}", "\\rule{99999em}{99999em}", "\\mkern99999999mu", "x^{99999999999}", "\\sqrt[99999999]{x}"], |s| match inline(s) {
-        Ok(svg) => well_formed(&svg),
-        Err(_) => Ok(()),
-    });
+    check(
+        &[
+            "\\hspace{99999999999em}",
+            "\\hspace{-99999999999em}",
+            "\\rule{99999em}{99999em}",
+            "\\mkern99999999mu",
+            "x^{99999999999}",
+            "\\sqrt[99999999]{x}",
+        ],
+        |s| match inline(s) {
+            Ok(svg) => well_formed(&svg),
+            Err(_) => Ok(()),
+        },
+    );
 }
 
 #[test]

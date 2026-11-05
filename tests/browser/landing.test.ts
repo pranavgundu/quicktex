@@ -140,3 +140,21 @@ describe('formula page', () => {
     expect(await s.page.evaluate(() => document.body.innerText)).not.toContain('\u2014')
   })
 })
+
+describe('render time', () => {
+  const time = () => s.page.locator('.sr-only', { hasText: 'Rendered in' })
+
+  test('reads as an exact time in microseconds or milliseconds', async () => {
+    await input().fill('x^2')
+    await s.page.waitForTimeout(300)
+    expect(await time().textContent()).toMatch(/^Rendered in [\d.]+ (µs|ms)$/)
+  })
+
+  test('a tiny formula is timed below the resolution of the browser clock', async () => {
+    await input().fill('x')
+    await s.page.waitForTimeout(300)
+    const text = (await time().textContent()) ?? ''
+    expect(text).toMatch(/µs$/)
+    expect(Number(text.match(/[\d.]+/)?.[0])).toBeGreaterThan(0)
+  })
+})

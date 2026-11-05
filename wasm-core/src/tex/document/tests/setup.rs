@@ -33,7 +33,14 @@ fn options_combine() {
 
 #[test]
 fn page_frames_match_the_article_class() {
-    for (options, top, height) in [("10pt", 125, 550), ("11pt", 130, 541), ("12pt", 126, 548), ("10pt,a4paper", 126, 598), ("11pt,a4paper", 127, 596), ("12pt,a4paper", 129, 592)] {
+    for (options, top, height) in [
+        ("10pt", 125, 550),
+        ("11pt", 130, 541),
+        ("12pt", 126, 548),
+        ("10pt,a4paper", 126, 598),
+        ("11pt,a4paper", 127, 596),
+        ("12pt,a4paper", 129, 592),
+    ] {
         let mut e = Engine::new();
         let s = format!("\\documentclass[{options}]{{article}}\\begin{{document}}x\\end{{document}}");
         run(&mut e, &s).unwrap();
@@ -48,7 +55,14 @@ fn page_frames_match_the_article_class() {
 
 #[test]
 fn margins_move_the_text() {
-    let cases = [("margin=1in", 7227), ("margin=2cm", 5690), ("left=3cm", 8535), ("margin=72.27pt", 7227), ("hmargin=1in", 7227), ("lmargin=1in", 7227)];
+    let cases = [
+        ("margin=1in", 7227),
+        ("margin=2cm", 5690),
+        ("left=3cm", 8535),
+        ("margin=72.27pt", 7227),
+        ("hmargin=1in", 7227),
+        ("lmargin=1in", 7227),
+    ];
     for (option, left) in cases {
         let d = good(&with(&format!("\\usepackage[{option}]{{geometry}}"), "\\noindent x"));
         assert!((d.left_edge(0) - left).abs() <= 120, "{option}: {}", d.left_edge(0));
@@ -80,17 +94,38 @@ fn wide_margins_make_more_lines() {
 #[test]
 fn ignored_setup_commands_print_nothing() {
     let plain = body("x").glyphs();
-    for line in ["\\usepackage{amsmath}", "\\usepackage{booktabs}", "\\usepackage{graphicx}", "\\usepackage{titlesec}", "\\usepackage{float}", "\\usepackage{caption}", "\\usepackage{hyperref}", "\\usepackage[utf8]{inputenc}", "\\usepackage[T1]{fontenc}", "\\pagestyle{empty}", "\\setlength{\\columnsep}{1cm}", "\\setlength{\\intextsep}{8pt}", "\\setlength{\\textfloatsep}{10pt}", "\\setlength{\\parindent}{0pt}", "\\setlength{\\parskip}{1em}", "\\captionsetup{skip=4pt}", "\\titlespacing*{\\section}{0pt}{10pt plus 2pt minus 2pt}{5pt}", "\\usetikzlibrary{arrows.meta,calc}", "\\pgfplotsset{compat=1.18}", "\\raggedbottom", "\\sloppy", "\\setcounter{page}{3}"] {
+    for line in [
+        "\\usepackage{amsmath}",
+        "\\usepackage{booktabs}",
+        "\\usepackage{graphicx}",
+        "\\usepackage{titlesec}",
+        "\\usepackage{float}",
+        "\\usepackage{caption}",
+        "\\usepackage{hyperref}",
+        "\\usepackage[utf8]{inputenc}",
+        "\\usepackage[T1]{fontenc}",
+        "\\pagestyle{empty}",
+        "\\setlength{\\columnsep}{1cm}",
+        "\\setlength{\\intextsep}{8pt}",
+        "\\setlength{\\textfloatsep}{10pt}",
+        "\\setlength{\\parindent}{0pt}",
+        "\\setlength{\\parskip}{1em}",
+        "\\captionsetup{skip=4pt}",
+        "\\titlespacing*{\\section}{0pt}{10pt plus 2pt minus 2pt}{5pt}",
+        "\\usetikzlibrary{arrows.meta,calc}",
+        "\\pgfplotsset{compat=1.18}",
+        "\\raggedbottom",
+        "\\sloppy",
+        "\\setcounter{page}{3}",
+    ] {
         let d = good(&with(line, "x"));
         assert_eq!(d.glyphs(), plain, "{line}");
     }
 }
 
 #[test]
-fn unknown_packages_are_refused() {
-    let (message, at) = compile(&with("\\usepackage{notapackage}", "x")).err().unwrap();
-    assert_eq!(message, "unknown package");
-    assert!(at > 0);
+fn unknown_packages_load_quietly() {
+    assert!(good(&with("\\usepackage{notapackage}", "x")).e.warned.is_empty());
 }
 
 #[test]

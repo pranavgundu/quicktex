@@ -10,6 +10,8 @@ pub(super) struct Scratch {
     objects: Vec<(u32, usize)>,
     kids: Vec<usize>,
     body: Vec<u8>,
+    form_spans: Vec<(u32, u32)>,
+    form_bytes: Vec<u8>,
 }
 
 fn int(out: &mut Vec<u8>, v: i32) {
@@ -174,11 +176,9 @@ fn color_value(text: &[u8]) -> (i32, i32, i32) {
     let hex = |c: u8| (c as char).to_digit(16).unwrap_or(0) as i32;
     match text {
         [b'#', r, g, b] => (hex(*r) * 17 * 1000 / 255, hex(*g) * 17 * 1000 / 255, hex(*b) * 17 * 1000 / 255),
-        [b'#', a, b, c, d, e, f] => (
-            (hex(*a) * 16 + hex(*b)) * 1000 / 255,
-            (hex(*c) * 16 + hex(*d)) * 1000 / 255,
-            (hex(*e) * 16 + hex(*f)) * 1000 / 255,
-        ),
+        [b'#', a, b, c, d, e, f] => {
+            ((hex(*a) * 16 + hex(*b)) * 1000 / 255, (hex(*c) * 16 + hex(*d)) * 1000 / 255, (hex(*e) * 16 + hex(*f)) * 1000 / 255)
+        }
         b"red" => (1000, 0, 0),
         b"green" => (0, 1000, 0),
         b"blue" => (0, 0, 1000),
@@ -445,7 +445,8 @@ impl Engine {
         const PAGES: usize = 2;
         const RESOURCES: usize = 3;
         let mut scratch = core::mem::take(&mut self.scratch);
-        let Scratch { offsets, forms, objects, kids, body } = &mut scratch;
+        let Scratch { offsets, forms, objects, kids, body, form_spans, form_bytes } = &mut scratch;
+        form_spans.resize(GLYPHS.len(), (0, 0));
         offsets.clear();
         forms.clear();
         forms.resize(GLYPHS.len(), 0);
@@ -462,11 +463,15 @@ impl Engine {
             }
             let id = it.a as usize;
             forms[id] = objects.len() as u32 + 1;
-            let g = &GLYPHS[id];
-            body.clear();
-            svg_path(body, &PATHS[g.off as usize..g.off as usize + g.len as usize], (g.sx as i32, g.sy as i32));
+            if form_spans[id].1 == 0 {
+                let g = &GLYPHS[id];
+                let at = form_bytes.len();
+                svg_path(form_bytes, &PATHS[g.off as usize..g.off as usize + g.len as usize], (g.sx as i32, g.sy as i32));
+                form_spans[id] = (at as u32, form_bytes.len() as u32);
+            }
+            let (from, to) = form_spans[id];
             self.object(offsets, next);
-            self.stream(FORM, body);
+            self.stream(FORM, &form_bytes[from as usize..to as usize]);
             objects.push((forms[id], next));
             next += 1;
         }

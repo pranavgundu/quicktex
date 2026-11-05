@@ -28,6 +28,10 @@ const RULE_HEAVY: u8 = 1;
 const RULE_LIGHT: u8 = 2;
 const RULE_PLAIN: u8 = 3;
 
+fn natural_start(widths: &[i32; MAX_COLUMNS], gap: i32, column: usize) -> i32 {
+    widths[..column].iter().sum::<i32>() + 2 * gap * column as i32
+}
+
 fn cell_end(engine: &Engine) -> usize {
     let mut i = engine.pos;
     let mut depth = 0;
@@ -102,69 +106,88 @@ impl Engine {
     }
 
     fn table_rule(&mut self) -> u8 {
-        let start = self.pos;
-        if self.peek() == b'\\' {
-            self.pos += 1;
-            let rule = match self.read_name() {
-                b"toprule" | b"bottomrule" => RULE_HEAVY,
-                b"midrule" => RULE_LIGHT,
-                b"hline" => RULE_PLAIN,
-                _ => RULE_NONE,
-            };
-            if rule != RULE_NONE {
-                return rule;
+        loop {
+            let start = self.pos;
+            if self.peek() != b'\\' {
+                return RULE_NONE;
             }
-            self.pos = start;
+            self.pos += 1;
+            match self.read_name() {
+                b"toprule" | b"bottomrule" => return RULE_HEAVY,
+                b"midrule" => return RULE_LIGHT,
+                b"hline" => return RULE_PLAIN,
+                b"cline" | b"cmidrule" | b"specialrule" => {
+                    self.skip_loose();
+                    return RULE_LIGHT;
+                }
+                b"addlinespace" | b"endhead" | b"endfirsthead" | b"endfoot" | b"endlastfoot" | b"rowcolor" | b"noalign" | b"hhline"
+                | b"rowcolors" | b"caption" | b"label" => {
+                    self.skip_loose();
+                    self.skip_ws();
+                }
+                _ => {
+                    self.pos = start;
+                    return RULE_NONE;
+                }
+            }
         }
-        RULE_NONE
     }
 
-    fn table_spec(&mut self) -> R<([u8; MAX_COLUMNS], usize, u64)> {
-        let spec = self.group_text()?;
+    fn table_spec(&mut self) -> R<([u8; MAX_COLUMNS], usize, u64, u64, bool)> {
+        let spec = self.loose_argument();
         let mut aligns = [0u8; MAX_COLUMNS];
         let mut count = 0;
         let mut lines = 0u64;
-        let mut i = 0;
-        while i < spec.len() {
-            match spec[i] {
-                b'l' | b'c' | b'r' => {
-                    if count == MAX_COLUMNS {
-                        return self.fail(E_ENV);
-                    }
-                    aligns[count] = spec[i];
-                    count += 1;
-                }
-                b'|' => lines |= 1 << count,
-                b' ' => {}
-                _ => return self.fail(E_ENV),
-            }
-            i += 1;
-        }
+        let mut flexible = 0u64;
+        scan_spec(spec, &mut aligns, &mut count, &mut lines, &mut flexible, 0);
         if count == 0 {
-            return self.fail(E_ENV);
+            aligns[0] = b'l';
+            count = 1;
         }
-        Ok((aligns, count, lines))
+        let fill = spec.windows(5).any(|w| w == b"\\fill");
+        Ok((aligns, count, lines, flexible, fill))
     }
 
-    pub(super) fn table_block(&mut self, d: &mut Doc, left: i32, width: i32) -> R<()> {
+    pub(super) fn table_width(&mut self, text: &[u8], width: i32) -> i32 {
+        let text = figure::trim(text);
+        for unit in [&b"\\textwidth"[..], b"\\linewidth", b"\\columnwidth", b"\\hsize"] {
+            if let Some(scale) = text.strip_suffix(unit) {
+                let scale = if scale.is_empty() { Some(1.0) } else { figure::length_pt(scale) };
+                return scale.map_or(0, |v| (v * width as f64) as i32);
+            }
+        }
+        figure::length_pt(text).map_or(0, |v| self.pt_units(v))
+    }
+
+    pub(super) fn table_block(&mut self, d: &mut Doc, left: i32, width: i32, name: &[u8]) -> R<()> {
         self.skip_ws();
         if self.peek() == b'[' {
             self.bracketed()?;
         }
-        let (aligns, count, lines) = self.table_spec()?;
+        let (aligns, count, lines, flexible, fill) = self.table_spec()?;
+        let target = core::mem::take(&mut d.table_width);
         let c = d.ctx;
         let mut cells = core::mem::take(&mut self.store.cells);
         let mut rows = core::mem::take(&mut self.store.rows);
         cells.clear();
         rows.clear();
-        let done = self.table_rows(d, &c, count, &mut cells, &mut rows);
-        let placed = done.and_then(|()| self.table_place(d, &c, left, width, &aligns, count, lines, &cells, &rows));
+        let done = self.table_rows(d, &c, count, &mut cells, &mut rows, name);
+        let stretch = (target, flexible, fill);
+        let placed = done.and_then(|()| self.table_place(d, &c, left, width, &aligns, count, lines, stretch, &cells, &rows));
         self.store.cells = cells;
         self.store.rows = rows;
         placed
     }
 
-    fn table_rows(&mut self, d: &mut Doc, c: &Ctx, count: usize, cells: &mut Vec<(Bx, u16, u16)>, rows: &mut Vec<TableRow>) -> R<()> {
+    fn table_rows(
+        &mut self,
+        d: &mut Doc,
+        c: &Ctx,
+        count: usize,
+        cells: &mut Vec<(Bx, u16, u16)>,
+        rows: &mut Vec<TableRow>,
+        name: &[u8],
+    ) -> R<()> {
         let mut rule = RULE_NONE;
         loop {
             self.skip_ws();
@@ -177,7 +200,7 @@ impl Engine {
                 return self.fail(E_END);
             }
             if self.slice(self.pos, (self.pos + 4).min(self.len)) == b"\\end" {
-                self.close_env(b"tabular")?;
+                self.close_env(name)?;
                 rows.push(TableRow { h: 0, d: 0, rule });
                 return Ok(());
             }
@@ -191,12 +214,11 @@ impl Engine {
                     return self.fail(E_END);
                 }
                 let b = self.line_until(d, c, stop)?;
-                if column >= count {
-                    return self.fail(E_MISPLACED);
+                if column < count {
+                    h = h.max(b.h);
+                    dep = dep.max(b.d);
+                    cells.push((b, row, column as u16));
                 }
-                h = h.max(b.h);
-                dep = dep.max(b.d);
-                cells.push((b, row, column as u16));
                 column += 1;
                 if self.peek() == b'&' {
                     self.pos += 1;
@@ -222,6 +244,7 @@ impl Engine {
         aligns: &[u8; MAX_COLUMNS],
         count: usize,
         lines: u64,
+        stretch: (i32, u64, bool),
         cells: &[(Bx, u16, u16)],
         rows: &[TableRow],
     ) -> R<()> {
@@ -231,11 +254,25 @@ impl Engine {
             *w = (*w).max(b.w);
         }
         let gap = d.table_gap;
+        let (target, flexible, fill) = stretch;
+        let natural = widths[..count].iter().sum::<i32>() + 2 * gap * count as i32;
+        let extra = (target - natural).max(0);
+        let flex_count = (flexible & ((1u64 << count.min(63)) - 1)).count_ones() as i32;
         let mut starts = [0i32; MAX_COLUMNS + 1];
+        let mut spread = 0;
         for i in 0..count {
+            if flex_count > 0 && i < 63 && flexible & (1 << i) != 0 {
+                widths[i] += extra / flex_count;
+            }
+            if fill && flex_count == 0 && count > 1 && i + 1 < count {
+                spread = extra * (i as i32 + 1) / (count as i32 - 1);
+            }
             starts[i + 1] = starts[i] + widths[i] + 2 * gap;
+            if fill && flex_count == 0 && count > 1 && i + 1 < count {
+                starts[i + 1] = natural_start(&widths, gap, i + 1) + spread;
+            }
         }
-        let total_w = starts[count];
+        let total_w = if fill && flex_count == 0 && count > 1 { starts[count - 1] + widths[count - 1] + 2 * gap } else { starts[count] };
         let rule_of = |kind: u8| match kind {
             RULE_HEAVY => (sc(HEAVY_RULE, c.scale), sc(ABOVE_RULE, c.scale), sc(BELOW_RULE, c.scale)),
             RULE_LIGHT => (sc(LIGHT_RULE, c.scale), sc(ABOVE_RULE, c.scale), sc(BELOW_RULE, c.scale)),
@@ -244,6 +281,7 @@ impl Engine {
         };
         let mut y = 0;
         let mut at = 0;
+        let mut first_base = None;
         let first_rule = self.end();
         for (index, row) in rows.iter().enumerate() {
             if row.rule != RULE_NONE {
@@ -253,6 +291,9 @@ impl Engine {
                 y += thick + below;
             }
             let base = y + row.h;
+            if at < cells.len() && first_base.is_none() {
+                first_base = Some(base);
+            }
             while at < cells.len() && cells[at].1 as usize == index {
                 let (b, _, column) = cells[at];
                 let i = column as usize;
@@ -281,12 +322,15 @@ impl Engine {
         let line = self.place_line(d, b.h, 0);
         let x = left + if d.center { ((width - b.w) / 2).max(0) } else { 0 };
         self.commit(d, b.s, b.e, x, line);
+        self.place_label(d, left, line - y + first_base.unwrap_or(0));
         Ok(())
     }
 
     pub(super) fn caption(&mut self, d: &mut Doc, left: i32, width: i32) -> R<()> {
         if d.float == 0 {
-            return self.fail(E_MISPLACED);
+            self.note(self.pos);
+            self.skip_arguments();
+            return Ok(());
         }
         self.skip_ws();
         if self.peek() == b'[' {
@@ -300,6 +344,9 @@ impl Engine {
         let (word, number): (&[u8], u32) = if d.float == 1 {
             d.figures += 1;
             (b"Figure", d.figures)
+        } else if d.float == 3 {
+            d.algorithms += 1;
+            (b"Algorithm", d.algorithms)
         } else {
             d.tables += 1;
             (b"Table", d.tables)
@@ -386,11 +433,16 @@ impl Engine {
         f.column = 0;
         f.word = None;
         f.label = None;
-        f.float = if name.starts_with(b"figure") { 1 } else { 2 };
+        f.float = match name.first() {
+            Some(b'f') => 1,
+            Some(b'a') => 3,
+            _ => 2,
+        };
         self.blocks(&mut f, 0, 0, name)?;
         self.close_env(name)?;
         d.figures = f.figures;
         d.tables = f.tables;
+        d.algorithms = f.algorithms;
         d.equation = f.equation;
         let h = f.base + f.dep;
         if wide {
@@ -435,5 +487,78 @@ impl Engine {
         d.fresh = false;
         d.noindent = false;
         Ok(())
+    }
+}
+
+fn group_end(spec: &[u8], at: usize) -> usize {
+    let mut depth = 0;
+    let mut i = at;
+    while i < spec.len() {
+        match spec[i] {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return i;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    spec.len().saturating_sub(1)
+}
+
+fn scan_spec(spec: &[u8], aligns: &mut [u8; MAX_COLUMNS], count: &mut usize, lines: &mut u64, flexible: &mut u64, depth: u32) {
+    let mut i = 0;
+    while i < spec.len() {
+        let ch = spec[i];
+        match ch {
+            b'l' | b'c' | b'r' | b'X' | b'S' | b's' | b'L' | b'C' | b'R' | b'p' | b'm' | b'b' | b'Y' | b'Z' => {
+                if *count < MAX_COLUMNS {
+                    if ch == b'X' && *count < 63 {
+                        *flexible |= 1 << *count;
+                    }
+                    aligns[*count] = match ch {
+                        b'c' | b'C' | b'S' | b's' => b'c',
+                        b'r' | b'R' => b'r',
+                        _ => b'l',
+                    };
+                    *count += 1;
+                }
+                if matches!(ch, b'p' | b'm' | b'b') && spec.get(i + 1) == Some(&b'{') {
+                    i = group_end(spec, i + 1);
+                }
+            }
+            b'|' => {
+                if *count < 63 {
+                    *lines |= 1 << *count;
+                }
+            }
+            b'@' | b'!' | b'>' | b'<' => {
+                if spec.get(i + 1) == Some(&b'{') {
+                    i = group_end(spec, i + 1);
+                }
+            }
+            b'*' if spec.get(i + 1) == Some(&b'{') && depth < 3 => {
+                let end = group_end(spec, i + 1);
+                let n = spec[i + 2..end]
+                    .iter()
+                    .filter(|c| c.is_ascii_digit())
+                    .fold(0usize, |v, c| v * 10 + (*c - b'0') as usize)
+                    .min(MAX_COLUMNS);
+                if spec.get(end + 1) == Some(&b'{') {
+                    let close = group_end(spec, end + 1);
+                    for _ in 0..n {
+                        scan_spec(&spec[end + 2..close], aligns, count, lines, flexible, depth + 1);
+                    }
+                    i = close;
+                } else {
+                    i = end;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
     }
 }

@@ -119,7 +119,22 @@ fn every_symbol_renders_inside_a_formula() {
 
 #[test]
 fn every_command_gives_output_or_an_error_for_every_argument_shape() {
-    let shapes = ["\\N", "\\N{x}", "\\N{x}{y}", "\\N{x}{y}{z}", "\\N x", "\\N[2]{x}", "\\N{}", "\\N{red}{x}", "\\N{1em}", "x\\N", "{\\N}", "\\N\\N", "\\N^2", "\\N_2"];
+    let shapes = [
+        "\\N",
+        "\\N{x}",
+        "\\N{x}{y}",
+        "\\N{x}{y}{z}",
+        "\\N x",
+        "\\N[2]{x}",
+        "\\N{}",
+        "\\N{red}{x}",
+        "\\N{1em}",
+        "x\\N",
+        "{\\N}",
+        "\\N\\N",
+        "\\N^2",
+        "\\N_2",
+    ];
     for e in &ENTRIES {
         for shape in shapes {
             let s = shape.replace("N", name_of(e));
@@ -138,7 +153,28 @@ fn every_command_gives_output_or_an_error_for_every_argument_shape() {
 
 #[test]
 fn almost_every_command_has_a_working_form() {
-    let shapes = ["\\N", "\\N{x}", "\\N{x}{y}", "\\N{x}{y}{z}", "\\N x", "\\N{red}{x}", "\\N{1em}", "\\N{1em}{1em}", "\\N(", "\\left(x\\N", "\\left(x\\N|\\right)", "\\N[1]{x}", "\\N{x}[1]", "\\begin{matrix}a\\N b\\end{matrix}", "\\begin{array}{c}\\N a\\end{array}", "\\N 3", "N", "\\text{\\N}", "\\text{N}", "\\text{\\N a}"];
+    let shapes = [
+        "\\N",
+        "\\N{x}",
+        "\\N{x}{y}",
+        "\\N{x}{y}{z}",
+        "\\N x",
+        "\\N{red}{x}",
+        "\\N{1em}",
+        "\\N{1em}{1em}",
+        "\\N(",
+        "\\left(x\\N",
+        "\\left(x\\N|\\right)",
+        "\\N[1]{x}",
+        "\\N{x}[1]",
+        "\\begin{matrix}a\\N b\\end{matrix}",
+        "\\begin{array}{c}\\N a\\end{array}",
+        "\\N 3",
+        "N",
+        "\\text{\\N}",
+        "\\text{N}",
+        "\\text{\\N a}",
+    ];
     let mut dead = Vec::new();
     for e in &ENTRIES {
         let name = name_of(e);
@@ -152,7 +188,8 @@ fn almost_every_command_has_a_working_form() {
 #[test]
 fn every_accent_sits_above_the_letter() {
     let plain = measure("x");
-    let rows: Vec<&str> = ENTRIES.iter().filter(|e| e.sym.kind == K_ACCENT && name_of(e).chars().all(|c| c.is_ascii_alphabetic())).map(name_of).collect();
+    let rows: Vec<&str> =
+        ENTRIES.iter().filter(|e| e.sym.kind == K_ACCENT && name_of(e).chars().all(|c| c.is_ascii_alphabetic())).map(name_of).collect();
     assert!(rows.len() >= 10);
     check(&rows, |name| {
         let form = format!("\\{name}{{x}}");
@@ -170,4 +207,50 @@ fn every_accent_glyph_is_drawn_high() {
         let g = &GLYPHS[e.sym.glyph as usize];
         assert!(g.sy <= -430, "{name} sits at {}", g.sy);
     }
+}
+
+#[test]
+fn command_list_names_real_commands() {
+    let mut e = Engine::new();
+    let size = e.command_list();
+    let text = core::str::from_utf8(&e.out).unwrap();
+    assert_eq!(size as usize, text.len());
+    let rows: Vec<&str> = text.lines().collect();
+    assert!(rows.contains(&"frac 07 0"));
+    assert!(rows.contains(&"=physics"));
+    assert!(rows.contains(&"+amssymb"));
+    let symbols: Vec<&str> = rows.iter().copied().take_while(|row| !row.starts_with('=')).collect();
+    assert!(symbols.len() > 700);
+    for row in symbols {
+        let mut parts = row.split(' ');
+        let name = parts.next().unwrap();
+        let kind: u8 = parts.next().unwrap().parse().unwrap();
+        let modes: u8 = parts.next().unwrap().parse().unwrap();
+        let sym = lookup(name.as_bytes()).unwrap();
+        assert_eq!(sym.kind, kind, "{name}");
+        assert_eq!(modes & 1 != 0, sym.flags & F_TEXT != 0, "{name}");
+        assert_eq!(modes & 2 != 0, sym.flags & F_TEXTONLY != 0, "{name}");
+    }
+}
+
+#[test]
+fn command_list_covers_every_package() {
+    let mut e = Engine::new();
+    e.command_list();
+    let text = core::str::from_utf8(&e.out).unwrap();
+    for package in crate::packages::PACKAGES {
+        let at = text.find(&format!("={}\n", package.name)).unwrap();
+        let rows = text[at..].lines().skip(1).take_while(|row| !row.starts_with(['=', '+'])).count();
+        assert_eq!(rows, package.defs.len() + package.natives.len(), "{}", package.name);
+    }
+    assert_eq!(text.lines().filter(|row| row.starts_with('+')).count(), crate::packages::NOOPS.len());
+}
+
+#[test]
+fn command_list_leaves_rendering_alone() {
+    let mut e = Engine::new();
+    let before = render_with(&mut e, r"\frac{a}{b}", false);
+    e.command_list();
+    let after = render_with(&mut e, r"\frac{a}{b}", false);
+    assert_eq!(format!("{before:?}"), format!("{after:?}"));
 }

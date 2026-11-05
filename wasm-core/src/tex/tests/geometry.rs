@@ -1,7 +1,13 @@
 use super::*;
 
 fn wider(rows: &[(&str, &str)]) {
-    check(rows, |r| if measure_display(r.0).width > measure_display(r.1).width { Ok(()) } else { Err(format!("{:?} vs {:?}", measure_display(r.0), measure_display(r.1))) });
+    check(rows, |r| {
+        if measure_display(r.0).width > measure_display(r.1).width {
+            Ok(())
+        } else {
+            Err(format!("{:?} vs {:?}", measure_display(r.0), measure_display(r.1)))
+        }
+    });
 }
 
 fn taller(rows: &[(&str, &str)]) {
@@ -19,12 +25,29 @@ fn width_adds_up() {
 
 #[test]
 fn longer_input_is_wider() {
-    wider(&[("xx", "x"), ("xxx", "xx"), ("abcdef", "abc"), ("a+b", "ab"), ("a=b", "a+b"), ("\\sin x", "x"), ("\\text{hello}", "\\text{hi}")]);
+    wider(&[
+        ("xx", "x"),
+        ("xxx", "xx"),
+        ("abcdef", "abc"),
+        ("a+b", "ab"),
+        ("a=b", "a+b"),
+        ("\\sin x", "x"),
+        ("\\text{hello}", "\\text{hi}"),
+    ]);
 }
 
 #[test]
 fn spaces_widen_by_size() {
-    wider(&[("a\\,b", "ab"), ("a\\:b", "a\\,b"), ("a\\;b", "a\\:b"), ("a\\quad b", "a\\;b"), ("a\\qquad b", "a\\quad b"), ("ab", "a\\!b"), ("a\\ b", "ab"), ("a~b", "ab")]);
+    wider(&[
+        ("a\\,b", "ab"),
+        ("a\\:b", "a\\,b"),
+        ("a\\;b", "a\\:b"),
+        ("a\\quad b", "a\\;b"),
+        ("a\\qquad b", "a\\quad b"),
+        ("ab", "a\\!b"),
+        ("a\\ b", "ab"),
+        ("a~b", "ab"),
+    ]);
 }
 
 #[test]
@@ -38,10 +61,13 @@ fn quad_is_one_em() {
 #[test]
 fn hspace_units_convert() {
     let base = measure("ab").width;
-    check(&[("1em", 1000), ("2em", 2000), ("0.5em", 500), ("18mu", 1000), ("10pt", 1000), ("1cm", 2845), ("1in", 7227), ("1mm", 284)], |r| {
-        let got = measure(&format!("a\\hspace{{{}}}b", r.0)).width - base;
-        if (got - r.1).abs() <= 3 { Ok(()) } else { Err(format!("got {got}")) }
-    });
+    check(
+        &[("1em", 1000), ("2em", 2000), ("0.5em", 500), ("18mu", 1000), ("10pt", 1000), ("1cm", 2845), ("1in", 7227), ("1mm", 284)],
+        |r| {
+            let got = measure(&format!("a\\hspace{{{}}}b", r.0)).width - base;
+            if (got - r.1).abs() <= 3 { Ok(()) } else { Err(format!("got {got}")) }
+        },
+    );
 }
 
 #[test]
@@ -108,17 +134,43 @@ fn delimiters_grow_in_steps() {
 
 #[test]
 fn left_right_fits_the_content() {
-    taller(&[("\\left(\\frac{a}{b}\\right)", "(\\frac{a}{b})"), ("\\left(\\sum_i^n\\right)", "\\left(x\\right)"), ("\\left[\\begin{matrix}a\\\\b\\\\c\\\\d\\end{matrix}\\right]", "\\left[\\begin{matrix}a\\\\b\\end{matrix}\\right]")]);
+    taller(&[
+        ("\\left(\\frac{a}{b}\\right)", "(\\frac{a}{b})"),
+        ("\\left(\\sum_i^n\\right)", "\\left(x\\right)"),
+        ("\\left[\\begin{matrix}a\\\\b\\\\c\\\\d\\end{matrix}\\right]", "\\left[\\begin{matrix}a\\\\b\\end{matrix}\\right]"),
+    ]);
 }
 
 #[test]
 fn every_delimiter_stretches() {
-    let rows = ["(", "[", "\\{", "|", "\\|", "\\langle", "\\lfloor", "\\lceil", "\\vert", "\\Vert", "/", "\\backslash", "\\uparrow", "\\downarrow", "\\updownarrow", "\\Uparrow", "\\Downarrow"];
+    let rows = [
+        "(",
+        "[",
+        "\\{",
+        "|",
+        "\\|",
+        "\\langle",
+        "\\lfloor",
+        "\\lceil",
+        "\\vert",
+        "\\Vert",
+        "/",
+        "\\backslash",
+        "\\uparrow",
+        "\\downarrow",
+        "\\updownarrow",
+        "\\Uparrow",
+        "\\Downarrow",
+    ];
     check(&rows, |d| {
         let tall = "\\begin{matrix}a\\\\b\\\\c\\\\d\\\\e\\\\f\\end{matrix}";
         let big = measure_display(&format!("\\left{d}{tall}\\right."));
         let content = measure_display(tall);
-        if big.height + big.depth >= (content.height + content.depth) * 9 / 10 { Ok(()) } else { Err(format!("{big:?} around {content:?}")) }
+        if big.height + big.depth >= (content.height + content.depth) * 9 / 10 {
+            Ok(())
+        } else {
+            Err(format!("{big:?} around {content:?}"))
+        }
     });
 }
 
@@ -172,7 +224,11 @@ fn script_sizes_stop_shrinking() {
 
 #[test]
 fn size_commands_scale_in_order() {
-    let widths: Vec<i32> = ["\\tiny", "\\scriptsize", "\\footnotesize", "\\small", "\\normalsize", "\\large", "\\Large", "\\LARGE", "\\huge", "\\Huge"].iter().map(|c| measure(&format!("{c} x")).width).collect();
+    let widths: Vec<i32> =
+        ["\\tiny", "\\scriptsize", "\\footnotesize", "\\small", "\\normalsize", "\\large", "\\Large", "\\LARGE", "\\huge", "\\Huge"]
+            .iter()
+            .map(|c| measure(&format!("{c} x")).width)
+            .collect();
     assert!(widths.windows(2).all(|w| w[0] < w[1]), "{widths:?}");
     assert_eq!(widths[4], measure("x").width);
 }
@@ -224,7 +280,12 @@ fn laps_take_no_width() {
 
 #[test]
 fn matrices_grow_with_columns() {
-    wider(&[("\\begin{matrix}a&b\\end{matrix}", "\\begin{matrix}a\\end{matrix}"), ("\\begin{matrix}a&b&c\\end{matrix}", "\\begin{matrix}a&b\\end{matrix}"), ("\\begin{pmatrix}a\\end{pmatrix}", "\\begin{matrix}a\\end{matrix}"), ("\\begin{matrix}a&b\\end{matrix}", "\\begin{smallmatrix}a&b\\end{smallmatrix}")]);
+    wider(&[
+        ("\\begin{matrix}a&b\\end{matrix}", "\\begin{matrix}a\\end{matrix}"),
+        ("\\begin{matrix}a&b&c\\end{matrix}", "\\begin{matrix}a&b\\end{matrix}"),
+        ("\\begin{pmatrix}a\\end{pmatrix}", "\\begin{matrix}a\\end{matrix}"),
+        ("\\begin{matrix}a&b\\end{matrix}", "\\begin{smallmatrix}a&b\\end{smallmatrix}"),
+    ]);
 }
 
 #[test]

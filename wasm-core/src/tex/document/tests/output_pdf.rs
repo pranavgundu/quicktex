@@ -98,13 +98,22 @@ fn page_count_matches() {
     for (s, pages) in [(article("x"), 1), (article("a\\newpage b\\newpage c"), 3), (LAB.to_string(), 2)] {
         let text = pdf_of(&s).text();
         assert_eq!(number_after(&text, "/Count"), pages);
-        assert_eq!(text.matches("/Type/Page/").count() + text.matches("/Type /Page\n").count() + text.matches("/Type/Page ").count() + text.matches("/Type /Page ").count() + text.matches("/Type /Page/").count(), pages);
+        assert_eq!(
+            text.matches("/Type/Page/").count()
+                + text.matches("/Type /Page\n").count()
+                + text.matches("/Type/Page ").count()
+                + text.matches("/Type /Page ").count()
+                + text.matches("/Type /Page/").count(),
+            pages
+        );
     }
 }
 
 #[test]
 fn media_box_is_the_page() {
-    assert!(pdf_of(&article("x")).text().contains("/MediaBox [0 0 612 792]") || pdf_of(&article("x")).text().contains("/MediaBox[0 0 612 792]"));
+    assert!(
+        pdf_of(&article("x")).text().contains("/MediaBox [0 0 612 792]") || pdf_of(&article("x")).text().contains("/MediaBox[0 0 612 792]")
+    );
 }
 
 #[test]
@@ -123,7 +132,9 @@ fn glyphs_are_shared_between_pages() {
 #[test]
 fn drawings_reach_the_pdf() {
     let a = pdf_of(&with("\\usepackage{tikz}", "\\begin{tikzpicture}\\draw (0,0) -- (1,0);\\end{tikzpicture}")).bytes.len();
-    let b = pdf_of(&with("\\usepackage{tikz}", "\\begin{tikzpicture}\\draw (0,0) -- (1,0);\\draw (0,1) -- (1,1);\\end{tikzpicture}")).bytes.len();
+    let b = pdf_of(&with("\\usepackage{tikz}", "\\begin{tikzpicture}\\draw (0,0) -- (1,0);\\draw (0,1) -- (1,1);\\end{tikzpicture}"))
+        .bytes
+        .len();
     assert!(b > a);
 }
 
@@ -147,7 +158,7 @@ fn pdf_after_a_failed_compile_is_the_last_good_one() {
     run(&mut e, LAB).unwrap();
     let size = e.document_pdf() as usize;
     let a = unsafe { core::slice::from_raw_parts(e.output_ptr(), size) }.to_vec();
-    assert!(run(&mut e, "\\begin{document}\\foo").is_err());
+    assert!(run(&mut e, "\\begin{document}{").is_err());
     let size = e.document_pdf() as usize;
     let b = unsafe { core::slice::from_raw_parts(e.output_ptr(), size) }.to_vec();
     assert_eq!(a, b);

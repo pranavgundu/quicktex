@@ -32,7 +32,8 @@ const GRAD_BODY: &str = r"\nabla\IfNoValueF{#1}{#1}";
 const DIV_BODY: &str = r"\nabla\cdot\IfNoValueF{#1}{#1}";
 const TR_BODY: &str = r"\operatorname{tr}";
 const DD_BODY: &str = r"\mathop{}\!\mathrm{d}\qtpow{#1}\IfNoValueF{#2}{#2}";
-const DV_BODY: &str = r"\IfNoValueTF{#3}{\frac{\mathrm{d}\qtpow{#1}}{\mathrm{d}#2\qtpow{#1}}}{\frac{\mathrm{d}\qtpow{#1}#2}{\mathrm{d}#3\qtpow{#1}}}";
+const DV_BODY: &str =
+    r"\IfNoValueTF{#3}{\frac{\mathrm{d}\qtpow{#1}}{\mathrm{d}#2\qtpow{#1}}}{\frac{\mathrm{d}\qtpow{#1}#2}{\mathrm{d}#3\qtpow{#1}}}";
 const PDV_BODY: &str = r"\IfNoValueTF{#3}{\frac{\partial\qtpow{#1}}{\partial #2\qtpow{#1}}}{\IfNoValueTF{#4}{\frac{\partial\qtpow{#1}#2}{\partial #3\qtpow{#1}}}{\frac{\partial^2 #2}{\partial #3\,\partial #4}}}";
 const FDV_BODY: &str = r"\IfNoValueTF{#2}{\frac{\delta}{\delta #1}}{\frac{\delta #1}{\delta #2}}";
 const BRA_BODY: &str = r"\left\langle #1\right|";

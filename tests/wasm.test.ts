@@ -119,16 +119,16 @@ describe('documents', () => {
   })
 
   test('throws with a position on errors', () => {
-    const tex = article('\\foo')
+    const tex = article('\\begin{center}x\\end{quote}')
     const error = failure(() => renderDocument(tex))
-    expect(error.message).toBe('unknown command')
-    expect(tex.slice(error.position, error.position + 4)).toBe('\\foo')
+    expect(error.message).toBe('unknown or mismatched environment')
+    expect(error.position).toBeGreaterThan(0)
   })
 
   test('keeps the last good pages after an error', () => {
     const tex = fixture('lab')
     const before = pages(tex)
-    failure(() => renderDocument(tex.replace('\\draw[dashed, gray]', '\\draw[wobble]')))
+    failure(() => renderDocument(tex.replace('\\end{document}', '{')))
     expect(documentPage(0)).toBe(before[0])
     expect(documentPage(1)).toBe(before[1])
   })
@@ -163,6 +163,42 @@ describe('pdf', () => {
   })
 })
 
+describe('speed on real shapes of document', () => {
+  const best = (run: () => void, times = 5) => {
+    let low = Infinity
+    for (let i = 0; i < times; i++) {
+      const start = performance.now()
+      run()
+      low = Math.min(low, performance.now() - start)
+    }
+    return low
+  }
+  const paragraph = 'The quick brown fox jumps over the lazy dog and keeps running through the field until the sun goes down.\n\n'
+
+  test('sixty paragraphs lay out within two milliseconds', () => {
+    const text = article(paragraph.repeat(60))
+    expect(best(() => renderDocument(text))).toBeLessThan(2)
+  })
+
+  test('user macros in running text stay cheap', () => {
+    const text = article('\\newcommand{\\term}[1]{\\textbf{#1}}\n' + 'a \\term{b} c\n\n'.repeat(500))
+    expect(best(() => renderDocument(text))).toBeLessThan(5)
+  })
+
+  test('a recursive drawing with thousands of branches stays under a second', () => {
+    const text = `\\documentclass{standalone}\\usepackage{tikz}
+\\newcommand{\\grow}[1]{\\ifnum#1>0 \\pgfmathtruncatemacro{\\next}{#1-1}
+\\draw (0,0) -- (0,1);
+\\begin{scope}[shift={(0,1)},scale=0.7]
+\\begin{scope}[rotate=25]\\grow{\\next}\\end{scope}
+\\begin{scope}[rotate=-25]\\grow{\\next}\\end{scope}
+\\end{scope}\\fi}
+\\begin{document}\\begin{tikzpicture}\\grow{12}\\end{tikzpicture}\\end{document}`
+    expect(renderDocument(text)).toBe(1)
+    expect(best(() => renderDocument(text), 3)).toBeLessThan(1000)
+  })
+})
+
 describe('the wasm binary', () => {
   test('needs no imports', () => {
     expect(WebAssembly.Module.imports(new WebAssembly.Module(bytes))).toEqual([])
@@ -170,7 +206,7 @@ describe('the wasm binary', () => {
 
   test('exports exactly the api', () => {
     const names = WebAssembly.Module.exports(new WebAssembly.Module(bytes)).map((entry) => entry.name)
-    for (const name of ['memory', 'qt_input', 'qt_render', 'qt_document', 'qt_page', 'qt_pdf', 'qt_use', 'qt_output', 'qt_error_pos']) {
+    for (const name of ['memory', 'qt_input', 'qt_render', 'qt_document', 'qt_page', 'qt_pdf', 'qt_use', 'qt_names', 'qt_warnings', 'qt_output', 'qt_error_pos']) {
       expect(names).toContain(name)
     }
   })
@@ -182,8 +218,8 @@ describe('the wasm binary', () => {
   })
 
   test('stays under the size budget', () => {
-    expect(bytes.length).toBeLessThan(1_200_000)
-    expect(Bun.gzipSync(bytes).length).toBeLessThan(450_000)
+    expect(bytes.length).toBeLessThan(1_300_000)
+    expect(Bun.gzipSync(bytes).length).toBeLessThan(500_000)
   })
 })
 

@@ -5,18 +5,18 @@ use alloc::vec::Vec;
 const NOVALUE: &[u8] = b"-NoValue-";
 const MS: &[u8] = b"mmmmmmmmm";
 const OS: &[u8] = b"Dmmmmmmmm";
-const MAX_EXPANSIONS: u32 = 20_000;
-const MAX_EXPANSION_BYTES: usize = 32 << 20;
+const MAX_EXPANSIONS: u32 = 400_000;
+const MAX_EXPANSION_BYTES: usize = 256 << 20;
 const MAX_DEFS: usize = 900;
 const DEF_MASK: usize = DEF_SLOTS - 1;
 
 #[derive(Clone, Copy)]
 pub(super) struct Def {
-    name: &'static [u8],
-    spec: &'static [u8],
-    default: &'static [u8],
-    body: &'static [u8],
-    native: Native,
+    pub(super) name: &'static [u8],
+    pub(super) spec: &'static [u8],
+    pub(super) default: &'static [u8],
+    pub(super) body: &'static [u8],
+    pub(super) native: Native,
 }
 
 impl Engine {
@@ -36,6 +36,40 @@ impl Engine {
             m &= m - 1;
             let _ = self.load_package(i);
         }
+    }
+
+    pub fn command_list(&mut self) -> i32 {
+        self.out.clear();
+        for entry in ENTRIES.iter() {
+            let name = &NAMES[entry.off as usize..][..entry.len as usize];
+            if name.is_empty() || !name.iter().all(u8::is_ascii_alphabetic) {
+                continue;
+            }
+            let kind = entry.sym.kind;
+            self.out.extend_from_slice(name);
+            self.out.extend_from_slice(&[b' ', b'0' + kind / 10, b'0' + kind % 10, b' ']);
+            self.out.push(b'0' + (entry.sym.flags & F_TEXT != 0) as u8 + 2 * (entry.sym.flags & F_TEXTONLY != 0) as u8);
+            self.out.push(b'\n');
+        }
+        for package in PACKAGES {
+            self.out.push(b'=');
+            self.out.extend_from_slice(package.name.as_bytes());
+            self.out.push(b'\n');
+            let defs = package.defs.iter().map(|d| (d.0, d.1));
+            let natives = package.natives.iter().map(|n| (n.0, n.1));
+            for (name, spec) in defs.chain(natives) {
+                self.out.extend_from_slice(name.as_bytes());
+                self.out.push(b' ');
+                self.out.extend_from_slice(spec.as_bytes());
+                self.out.push(b'\n');
+            }
+        }
+        for name in NOOPS {
+            self.out.push(b'+');
+            self.out.extend_from_slice(name.as_bytes());
+            self.out.push(b'\n');
+        }
+        self.out.len() as i32
     }
 
     pub fn use_session_package(&mut self, len: usize) -> i32 {
@@ -66,7 +100,7 @@ impl Engine {
         }
     }
 
-    fn add_def(&mut self, d: Def) -> R<()> {
+    pub(super) fn add_def(&mut self, d: Def) -> R<()> {
         let mut i = hash_name(d.name) & DEF_MASK;
         loop {
             let e = self.def_hash[i];
@@ -87,7 +121,7 @@ impl Engine {
         Ok(())
     }
 
-    fn define(&mut self, name: &'static [u8], spec: &'static [u8], default: &'static [u8], body: &'static [u8]) -> R<()> {
+    pub(super) fn define(&mut self, name: &'static [u8], spec: &'static [u8], default: &'static [u8], body: &'static [u8]) -> R<()> {
         self.add_def(Def { name, spec, default, body, native: Native::None })
     }
 
@@ -413,9 +447,7 @@ impl Engine {
             b"NewDocumentCommand" | b"RenewDocumentCommand" | b"DeclareDocumentCommand" => self.document_command(false)?,
             b"ProvideDocumentCommand" => self.document_command(true)?,
             b"definecolor" => self.define_color()?,
-            b"IfNoValueTF" | b"IfNoValueT" | b"IfNoValueF" | b"IfBooleanTF" | b"IfBooleanT" | b"IfBooleanF" => {
-                self.branch(name, r, c)?
-            }
+            b"IfNoValueTF" | b"IfNoValueT" | b"IfNoValueF" | b"IfBooleanTF" | b"IfBooleanT" | b"IfBooleanF" => self.branch(name, r, c)?,
             _ => {
                 let Some(d) = self.autoload(name)? else {
                     return Ok(false);
@@ -434,7 +466,7 @@ impl Engine {
         Ok(None)
     }
 
-    fn expansion(&mut self, d: &Def, text: bool) -> R<Vec<u8>> {
+    pub(super) fn expansion(&mut self, d: &Def, text: bool) -> R<Vec<u8>> {
         self.expansions += 1;
         if self.expansions > MAX_EXPANSIONS {
             return self.fail(E_DEPTH);
@@ -573,11 +605,8 @@ impl Engine {
             b'{' => (self.balanced()?, b"\\{", b"\\}", b"matrix"),
             _ => return self.fail(E_ARG),
         };
-        let parts: [&[u8]; 7] = if matrix {
-            [b"\\begin{", env, b"}", body, b"\\end{", env, b"}"]
-        } else {
-            [b"\\left", l, b" ", body, b"\\right", r, b""]
-        };
+        let parts: [&[u8]; 7] =
+            if matrix { [b"\\begin{", env, b"}", body, b"\\end{", env, b"}"] } else { [b"\\left", l, b" ", body, b"\\right", r, b""] };
         for p in parts {
             out.extend_from_slice(p);
         }
@@ -585,26 +614,37 @@ impl Engine {
     }
 }
 
-fn substitute(body: &[u8], args: &[&[u8]; 9], out: &mut Vec<u8>) {
+fn ends_in_command(text: &[u8]) -> bool {
+    let word = text.iter().rev().take_while(|ch| ch.is_ascii_alphabetic()).count();
+    word > 0 && text.len() > word && text[text.len() - word - 1] == b'\\'
+}
+
+pub(super) fn substitute(body: &[u8], args: &[&[u8]; 9], out: &mut Vec<u8>) {
+    let mut start = 0;
     let mut j = 0;
-    while j < body.len() {
-        let ch = body[j];
-        if ch == b'#' && j + 1 < body.len() {
-            let x = body[j + 1];
-            if x == b'#' {
-                out.push(b'#');
-                j += 2;
-                continue;
+    while let Some(k) = body[j..].iter().position(|ch| *ch == b'#') {
+        j += k;
+        let Some(&x) = body.get(j + 1) else {
+            break;
+        };
+        if x == b'#' {
+            out.extend_from_slice(&body[start..=j]);
+            j += 2;
+            start = j;
+        } else if (b'1'..=b'9').contains(&x) {
+            out.extend_from_slice(&body[start..j]);
+            let arg = args[(x - b'1') as usize];
+            if arg.first().is_some_and(u8::is_ascii_alphabetic) && ends_in_command(out) {
+                out.push(b' ');
             }
-            if (b'1'..=b'9').contains(&x) {
-                out.extend_from_slice(args[(x - b'1') as usize]);
-                j += 2;
-                continue;
-            }
+            out.extend_from_slice(arg);
+            j += 2;
+            start = j;
+        } else {
+            j += 1;
         }
-        out.push(ch);
-        j += 1;
     }
+    out.extend_from_slice(&body[start..]);
 }
 
 fn parse_milli(s: &[u8]) -> Option<i32> {

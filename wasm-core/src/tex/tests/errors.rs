@@ -18,7 +18,14 @@ fn at(rows: &[(&str, usize)]) {
 
 #[test]
 fn unknown_commands() {
-    fails(&[("\\notacommand", "unknown command"), ("x\\foo y", "unknown command"), ("\\frac{\\foo}{b}", "unknown command"), ("\\text{\\foo}", "unknown command"), ("\\alpha\\betaa", "unknown command"), ("\\sqrt{\\nope}", "unknown command")]);
+    fails(&[
+        ("\\notacommand", "unknown command"),
+        ("x\\foo y", "unknown command"),
+        ("\\frac{\\foo}{b}", "unknown command"),
+        ("\\text{\\foo}", "unknown command"),
+        ("\\alpha\\betaa", "unknown command"),
+        ("\\sqrt{\\nope}", "unknown command"),
+    ]);
 }
 
 #[test]
@@ -33,7 +40,16 @@ fn unbalanced_braces() {
 
 #[test]
 fn missing_closers_are_end_of_input() {
-    fails(&[("{", "unexpected end of input"), ("{x", "unexpected end of input"), ("\\frac{a", "unexpected end of input"), ("\\frac{a}{b", "unexpected end of input"), ("\\sqrt{", "unexpected end of input"), ("x^{", "unexpected end of input"), ("\\left(", "unexpected end of input"), ("\\begin{matrix}", "unexpected end of input")]);
+    fails(&[
+        ("{", "unexpected end of input"),
+        ("{x", "unexpected end of input"),
+        ("\\frac{a", "unexpected end of input"),
+        ("\\frac{a}{b", "unexpected end of input"),
+        ("\\sqrt{", "unexpected end of input"),
+        ("x^{", "unexpected end of input"),
+        ("\\left(", "unexpected end of input"),
+        ("\\begin{matrix}", "unexpected end of input"),
+    ]);
 }
 
 #[test]
@@ -48,12 +64,25 @@ fn double_script_position_is_the_second_script() {
 
 #[test]
 fn missing_arguments() {
-    fails(&[("\\frac", "missing argument"), ("\\sqrt", "missing argument"), ("x^", "missing argument"), ("x_", "missing argument"), ("\\hat", "missing argument"), ("\\mathbf", "missing argument"), ("\\text", "missing argument")]);
+    fails(&[
+        ("\\frac", "missing argument"),
+        ("\\sqrt", "missing argument"),
+        ("x^", "missing argument"),
+        ("x_", "missing argument"),
+        ("\\hat", "missing argument"),
+        ("\\mathbf", "missing argument"),
+        ("\\text", "missing argument"),
+    ]);
 }
 
 #[test]
 fn delimiters_must_be_delimiters() {
-    fails(&[("\\left x\\right)", "invalid delimiter"), ("\\left(x\\right y", "invalid delimiter"), ("\\big x", "invalid delimiter"), ("\\left\\alpha x\\right.", "invalid delimiter")]);
+    fails(&[
+        ("\\left x\\right)", "invalid delimiter"),
+        ("\\left(x\\right y", "invalid delimiter"),
+        ("\\big x", "invalid delimiter"),
+        ("\\left\\alpha x\\right.", "invalid delimiter"),
+    ]);
 }
 
 #[test]
@@ -63,7 +92,11 @@ fn stray_closers_are_misplaced() {
 
 #[test]
 fn environments_must_match() {
-    fails(&[("\\begin{nope}x\\end{nope}", "unknown or mismatched environment"), ("\\begin{matrix}a\\end{pmatrix}", "unknown or mismatched environment"), ("\\end{matrix}", "misplaced token")]);
+    fails(&[
+        ("\\begin{nope}x\\end{nope}", "unknown or mismatched environment"),
+        ("\\begin{matrix}a\\end{pmatrix}", "unknown or mismatched environment"),
+        ("\\end{matrix}", "misplaced token"),
+    ]);
 }
 
 #[test]
@@ -73,7 +106,12 @@ fn colors_must_not_be_empty() {
 
 #[test]
 fn dimensions_must_parse() {
-    fails(&[("\\hspace{abc}", "invalid dimension"), ("\\hspace{1}", "invalid dimension"), ("\\hspace{1furlong}", "invalid dimension"), ("\\rule{x}{1em}", "invalid dimension")]);
+    fails(&[
+        ("\\hspace{abc}", "invalid dimension"),
+        ("\\hspace{1}", "invalid dimension"),
+        ("\\hspace{1furlong}", "invalid dimension"),
+        ("\\rule{x}{1em}", "invalid dimension"),
+    ]);
 }
 
 #[test]
@@ -95,15 +133,27 @@ fn deep_nesting_is_refused() {
 
 #[test]
 fn recursive_macros_stop() {
-    check(&["\\def\\a{\\a}\\a", "\\def\\a{\\a\\a}\\a", "\\newcommand{\\a}{\\a}\\a", "\\def\\a{\\b}\\def\\b{\\a}\\a", "\\def\\a{x\\a}\\a", "\\newcommand{\\a}[1]{\\a{#1#1}}\\a{x}"], |s| if inline(s).is_err() { Ok(()) } else { Err("rendered".into()) });
+    check(
+        &[
+            "\\def\\a{\\a}\\a",
+            "\\def\\a{\\a\\a}\\a",
+            "\\newcommand{\\a}{\\a}\\a",
+            "\\def\\a{\\b}\\def\\b{\\a}\\a",
+            "\\def\\a{x\\a}\\a",
+            "\\newcommand{\\a}[1]{\\a{#1#1}}\\a{x}",
+        ],
+        |s| if inline(s).is_err() { Ok(()) } else { Err("rendered".into()) },
+    );
 }
 
 #[test]
 fn every_error_position_is_inside_the_input() {
-    check(&["\\foo", "{", "}", "x^", "\\frac", "\\left(", "\\begin{x}", "\\hspace{q}", "x^1^2", "é\\foo", "日本語\\foo"], |s| match inline(s) {
-        Err((_, at)) if at <= s.len() => Ok(()),
-        Err((_, at)) => Err(format!("position {at}")),
-        Ok(_) => Err("rendered".into()),
+    check(&["\\foo", "{", "}", "x^", "\\frac", "\\left(", "\\begin{x}", "\\hspace{q}", "x^1^2", "é\\foo", "日本語\\foo"], |s| {
+        match inline(s) {
+            Err((_, at)) if at <= s.len() => Ok(()),
+            Err((_, at)) => Err(format!("position {at}")),
+            Ok(_) => Err("rendered".into()),
+        }
     });
 }
 
@@ -123,11 +173,27 @@ fn error_messages_are_lowercase_sentences() {
 
 #[test]
 fn colors_cannot_break_out_of_the_attribute() {
-    check(&["\\textcolor{red\" onclick=\"x}{y}", "\\color{\"/><script>x</script>}y", "\\textcolor{a'b}{y}", "\\textcolor{a<b}{y}", "\\textcolor{a>b}{y}", "\\textcolor{a b}{y}", "\\textcolor{a&b}{y}", "\\textcolor{a;b}{y}", "\\textcolor{a(b)}{y}", "\\textcolor{a/b}{y}", "\\textcolor{a=b}{y}", "\\definecolor{m}{HTML}{\"><b>}\\textcolor{m}{y}"], |s| match inline(s) {
-        Err((message, _)) if message == "invalid color" => Ok(()),
-        Err((message, _)) => Err(message),
-        Ok(svg) => Err(svg[..120].to_string()),
-    });
+    check(
+        &[
+            "\\textcolor{red\" onclick=\"x}{y}",
+            "\\color{\"/><script>x</script>}y",
+            "\\textcolor{a'b}{y}",
+            "\\textcolor{a<b}{y}",
+            "\\textcolor{a>b}{y}",
+            "\\textcolor{a b}{y}",
+            "\\textcolor{a&b}{y}",
+            "\\textcolor{a;b}{y}",
+            "\\textcolor{a(b)}{y}",
+            "\\textcolor{a/b}{y}",
+            "\\textcolor{a=b}{y}",
+            "\\definecolor{m}{HTML}{\"><b>}\\textcolor{m}{y}",
+        ],
+        |s| match inline(s) {
+            Err((message, _)) if message == "invalid color" => Ok(()),
+            Err((message, _)) => Err(message),
+            Ok(svg) => Err(svg[..120].to_string()),
+        },
+    );
 }
 
 #[test]

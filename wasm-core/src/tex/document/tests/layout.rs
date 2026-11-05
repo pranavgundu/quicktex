@@ -31,7 +31,11 @@ fn baseline_follows_the_font_size() {
 #[test]
 fn justified_lines_share_a_right_edge() {
     let d = body(&words(400));
-    let edges: Vec<i32> = d.baselines(0).iter().map(|y| d.items(0).iter().filter(|i| i.y == *y).map(|i| i.x + crate::data::GLYPHS[i.a as usize].w as i32).max().unwrap()).collect();
+    let edges: Vec<i32> = d
+        .baselines(0)
+        .iter()
+        .map(|y| d.items(0).iter().filter(|i| i.y == *y).map(|i| i.x + crate::data::GLYPHS[i.a as usize].w as i32).max().unwrap())
+        .collect();
     let body = &edges[..edges.len() - 1];
     let (min, max) = (body.iter().min().unwrap(), body.iter().max().unwrap());
     assert!(max - min < 60, "{min} {max}");
@@ -238,7 +242,8 @@ fn second_column_starts_at_the_top() {
 fn columns_do_not_overlap() {
     let d = good(&format!("\\documentclass[twocolumn]{{article}}\\begin{{document}}{}\\end{{document}}", words(1500)));
     let mid = d.laid().w / 2;
-    let left_end = d.items(0).iter().filter(|i| i.x < mid && i.y < 70000).map(|i| i.x + crate::data::GLYPHS[i.a as usize].w as i32).max().unwrap();
+    let left_end =
+        d.items(0).iter().filter(|i| i.x < mid && i.y < 70000).map(|i| i.x + crate::data::GLYPHS[i.a as usize].w as i32).max().unwrap();
     let right_start = d.items(0).iter().filter(|i| i.x > mid).map(|i| i.x).min().unwrap();
     assert!(right_start > left_end, "{left_end} {right_start}");
 }
@@ -263,7 +268,17 @@ fn columnsep_widens_the_gap() {
 #[test]
 fn fonts_change_the_text() {
     let plain = body("x");
-    for s in ["\\textbf{x}", "\\textit{x}", "\\texttt{x}", "\\textsf{x}", "\\emph{x}", "{\\bfseries x}", "{\\itshape x}", "{\\ttfamily x}", "{\\sffamily x}"] {
+    for s in [
+        "\\textbf{x}",
+        "\\textit{x}",
+        "\\texttt{x}",
+        "\\textsf{x}",
+        "\\emph{x}",
+        "{\\bfseries x}",
+        "{\\itshape x}",
+        "{\\ttfamily x}",
+        "{\\sffamily x}",
+    ] {
         let d = body(s);
         assert_eq!(d.glyphs(), 1, "{s}");
         assert_ne!(d.all_items()[0].a, plain.all_items()[0].a, "{s}");
@@ -300,17 +315,18 @@ fn text_escapes_print() {
 }
 
 #[test]
-fn accented_letters_are_not_supported_yet() {
-    let source = article("caf\u{e9}");
-    let (message, at) = compile(&source).err().unwrap();
-    assert_eq!(message, "unsupported character");
-    assert_eq!(&source[at..at + 2], "\u{e9}");
+fn accented_letters_are_drawn_from_their_parts() {
+    assert_eq!(body("caf\u{e9}").glyphs(), 5);
+    assert_eq!(body("caf\\'e").glyphs(), 5);
+    assert_eq!(body("\\\"o \\`a \\^i").glyphs(), 6);
+    assert!(body("caf\u{e9}").e.warned.is_empty());
 }
 
 #[test]
-fn color_in_body_text_is_not_supported_yet() {
-    assert_eq!(compile(&article("\\textcolor{red}{x}")).err().unwrap().0, "unknown command");
+fn color_in_body_text_works() {
+    assert_eq!(body("\\textcolor{red}{x}").glyphs(), 1);
     assert_eq!(body("$\\textcolor{red}{x}$").glyphs(), 1);
+    assert!(body("\\textcolor{red}{x}").e.warned.is_empty());
 }
 
 #[test]
@@ -344,7 +360,8 @@ fn display_math_is_centered_on_its_own_line() {
 
 #[test]
 fn every_display_form_works() {
-    for s in ["\\[x\\]", "$$x$$", "\\begin{equation*}x\\end{equation*}", "\\begin{align*}x\\end{align*}", "\\begin{gather*}x\\end{gather*}"] {
+    for s in ["\\[x\\]", "$$x$$", "\\begin{equation*}x\\end{equation*}", "\\begin{align*}x\\end{align*}", "\\begin{gather*}x\\end{gather*}"]
+    {
         assert_eq!(body(s).glyphs(), 1, "{s}");
     }
 }

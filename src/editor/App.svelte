@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { documentPdf, QuicktexError, renderDocument } from '../../wasm-core/js/quicktex.js'
+  import { documentPdf, documentWarnings, QuicktexError, renderDocument } from '../../wasm-core/js/quicktex.js'
   import Button from '../lib/Button.svelte'
   import Icon from '../lib/Icon.svelte'
   import Segmented from '../lib/Segmented.svelte'
@@ -8,40 +8,58 @@
   import { back, download as downloadIcon, warning } from '../lib/icons'
   import { charIndex } from '../lib/latex'
   import { remember, remembered } from '../lib/storage'
+  import { measure, timeTex, timeText } from '../lib/timing'
+  import Outline from './Outline.svelte'
   import Pages from './Pages.svelte'
+  import { countWords } from './scan'
   import Source from './Source.svelte'
   import { starter } from './starter'
 
   const storageKey = 'quicktex-document'
   const saveDelay = 400
   const pdfDelay = 150
+  const heavy = 2000
   const splitStorageKey = 'quicktex-split'
 
-  let source = $state(remembered(storageKey) ?? starter)
+  const opened = remembered(storageKey) ?? starter
+
+  let source = $state(opened)
   let pages = $state(0)
   let version = $state(0)
   let problem = $state('')
   let problemAt = $state<number | null>(null)
-  let millis = $state(0)
-  let pdfMillis = $state<number | null>(null)
+  let micros = $state(0)
+  let pdfMicros = $state<number | null>(null)
+  let warningAt = $state<number | null>(null)
+  let warningCount = $state(0)
   let split = $state(Number(remembered(splitStorageKey)) || 50)
   let showing = $state<'source' | 'pages'>('source')
+  let words = $state(countWords(opened))
+  let cursorAt = 0
   let workspace: HTMLElement
   let editor: Source
 
-  const duration = (ms: number) => (ms < 0.1 ? 'under 0.1' : ms < 10 ? ms.toFixed(1) : Math.round(ms))
-  const timing = $derived(
-    `${duration(millis)} ms${pdfMillis === null ? '' : `, PDF ${duration(pdfMillis)} ms`}`,
+  const summary = $derived(`${pages} ${pages === 1 ? 'page' : 'pages'}, ${words} ${words === 1 ? 'word' : 'words'}, `)
+  const statusText = $derived(`${summary}${timeText(micros)}${pdfMicros === null ? '' : `, PDF ${timeText(pdfMicros)}`}`)
+  const statusTex = $derived(
+    `\\text{${summary}}${timeTex(micros)}${pdfMicros === null ? '' : `\\text{, PDF }${timeTex(pdfMicros)}`}`,
   )
+  const warningToken = $derived(warningAt === null ? '' : (/^\\[a-zA-Z@]+|^\S{1,16}/.exec(source.slice(warningAt))?.[0] ?? ''))
+  const warningLine = $derived(warningAt === null ? 0 : source.slice(0, warningAt).split('\n').length)
+  const warningText = $derived(`Ignored ${warningToken} on line ${warningLine}${warningCount > 1 ? `, ${warningCount - 1} more` : ''}`)
+  const warningTex = $derived(`\\text{Ignored }\\texttt{${warningToken.replace(/[^a-zA-Z0-9]/g, (c) => (c === '\\' ? '\\textbackslash ' : ''))}}\\text{ on line ${warningLine}${warningCount > 1 ? `, ${warningCount - 1} more` : ''}}`)
 
   function compile(tex: string) {
     const start = performance.now()
     try {
       pages = renderDocument(tex)
-      millis = performance.now() - start
+      micros = (performance.now() - start) * 1000
       version++
       problem = ''
       problemAt = null
+      const warnings = documentWarnings()
+      warningCount = warnings.length
+      warningAt = warnings.length ? charIndex(tex, warnings[0]) : null
     } catch (error) {
       if (!(error instanceof QuicktexError)) throw error
       problemAt = charIndex(tex, error.position)
@@ -54,28 +72,35 @@
   $effect(() => {
     const tex = source
     const frame = requestAnimationFrame(() => compile(tex))
-    const save = setTimeout(() => remember(storageKey, tex), saveDelay)
+    const save = setTimeout(() => {
+      remember(storageKey, tex)
+      words = countWords(tex)
+    }, saveDelay)
     return () => {
       cancelAnimationFrame(frame)
       clearTimeout(save)
     }
   })
 
-  function makePdf() {
+  function timeWork() {
+    if (micros < heavy) {
+      const tex = source
+      micros = measure(() => renderDocument(tex))
+    }
     const start = performance.now()
-    const pdf = documentPdf()
-    pdfMillis = performance.now() - start
-    return pdf
+    documentPdf()
+    const once = (performance.now() - start) * 1000
+    pdfMicros = once < heavy ? measure(documentPdf) : once
   }
 
   $effect(() => {
-    if (version === 0) return
-    const timer = setTimeout(makePdf, pdfDelay)
+    if (version === 0 || problem) return
+    const timer = setTimeout(timeWork, pdfDelay)
     return () => clearTimeout(timer)
   })
 
   function download() {
-    const url = URL.createObjectURL(new Blob([makePdf() as BlobPart], { type: 'application/pdf' }))
+    const url = URL.createObjectURL(new Blob([documentPdf() as BlobPart], { type: 'application/pdf' }))
     const link = document.createElement('a')
     link.href = url
     link.download = 'document.pdf'
@@ -142,23 +167,44 @@
       class={['grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_40px]', showing === 'pages' && 'max-md:hidden']}
       aria-label="LaTeX source"
     >
-      <div class="min-h-0"><Source bind:this={editor} bind:value={source} errorAt={problemAt} /></div>
-      <div class="flex min-w-0 items-center border-t border-rule-strong bg-paper text-sm text-quiet" role="status">
-        {#if problem}
-          <button
-            class="flex size-full items-center gap-2 bg-sheet px-4 text-left text-red shadow-[inset_0_2px_0_var(--color-red)] hover:bg-paper"
-            type="button"
-            onclick={() => problemAt !== null && editor.reveal(problemAt)}
-          >
-            <Icon icon={warning} />
-            <span class="min-w-0 flex-1 truncate"><Typeset text={problem} /></span>
-            {#if pages > 0}
-              <span class="shrink-0 text-quiet max-lg:hidden"><Typeset text="Pages show the last good version" /></span>
+      <div class="min-h-0">
+        <Source
+          bind:this={editor}
+          bind:value={source}
+          errorAt={problemAt ?? warningAt}
+          onsave={() => remember(storageKey, source)}
+          oncursor={(at) => (cursorAt = at)}
+        />
+      </div>
+      <div class="flex min-w-0 items-center border-t border-rule-strong bg-paper text-sm text-quiet">
+        <div class="flex h-full min-w-0 flex-1 items-center" role="status">
+          {#if problem}
+            <button
+              class="flex size-full items-center gap-2 bg-sheet px-4 text-left text-red shadow-[inset_0_2px_0_var(--color-red)] hover:bg-paper"
+              type="button"
+              onclick={() => problemAt !== null && editor.reveal(problemAt)}
+            >
+              <Icon icon={warning} />
+              <span class="min-w-0 flex-1 truncate"><Typeset text={problem} /></span>
+              {#if pages > 0}
+                <span class="shrink-0 text-quiet max-lg:hidden"><Typeset text="Pages show the last good version" /></span>
+              {/if}
+            </button>
+          {:else}
+            <p class="min-w-0 truncate px-4"><Typeset text={statusText} tex={statusTex} /></p>
+            {#if warningAt !== null}
+              <button
+                class="flex min-w-0 shrink items-center gap-2 pr-4 text-left text-ink hover:text-green"
+                type="button"
+                onclick={() => warningAt !== null && editor.reveal(warningAt)}
+              >
+                <Icon icon={warning} />
+                <span class="min-w-0 truncate"><Typeset text={warningText} tex={warningTex} /></span>
+              </button>
             {/if}
-          </button>
-        {:else}
-          <p class="px-4"><Typeset text={`${pages} ${pages === 1 ? 'page' : 'pages'}, ${timing}`} /></p>
-        {/if}
+          {/if}
+        </div>
+        <Outline {source} cursor={() => cursorAt} onjump={(at) => editor.jump(at)} />
       </div>
     </section>
     <button

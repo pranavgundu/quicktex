@@ -78,7 +78,27 @@ fn floor_matches_the_library() {
 
 #[test]
 fn arithmetic_follows_precedence() {
-    check(&[("1+2*3", 7.0), ("(1+2)*3", 9.0), ("2^3", 8.0), ("2*3^2", 18.0), ("10/4", 2.5), ("10-3-2", 5.0), ("2+-3", -1.0), ("-2+3", 1.0), ("--2", 2.0), ("+2", 2.0), ("1.5*2", 3.0), (".5*4", 2.0), ("1e3", 1000.0), ("2.5e-1", 0.25), (" 1 + 2 ", 3.0), ("((((1))))", 1.0)], |r| if near(eval(r.0), r.1, 1e-12) { Ok(()) } else { Err(format!("{}", eval(r.0))) });
+    check(
+        &[
+            ("1+2*3", 7.0),
+            ("(1+2)*3", 9.0),
+            ("2^3", 8.0),
+            ("2*3^2", 18.0),
+            ("10/4", 2.5),
+            ("10-3-2", 5.0),
+            ("2+-3", -1.0),
+            ("-2+3", 1.0),
+            ("--2", 2.0),
+            ("+2", 2.0),
+            ("1.5*2", 3.0),
+            (".5*4", 2.0),
+            ("1e3", 1000.0),
+            ("2.5e-1", 0.25),
+            (" 1 + 2 ", 3.0),
+            ("((((1))))", 1.0),
+        ],
+        |r| if near(eval(r.0), r.1, 1e-12) { Ok(()) } else { Err(format!("{}", eval(r.0))) },
+    );
 }
 
 #[test]
@@ -121,10 +141,23 @@ fn x_is_the_variable() {
 
 #[test]
 fn units_mark_a_length() {
-    check(&[("1pt", 1.0), ("1cm", CM), ("1mm", CM / 10.0), ("1in", 72.27), ("1em", 10.0), ("1ex", 4.3), ("1bp", 1.00375), ("2.5cm", 2.5 * CM), ("1cm+1pt", CM + 1.0)], |r| {
-        let (v, unit) = evaluate(r.0.as_bytes(), 0.0, 0.0).unwrap();
-        if near(v, r.1, 1e-9) && unit { Ok(()) } else { Err(format!("{v} {unit}")) }
-    });
+    check(
+        &[
+            ("1pt", 1.0),
+            ("1cm", CM),
+            ("1mm", CM / 10.0),
+            ("1in", 72.27),
+            ("1em", 10.0),
+            ("1ex", 4.3),
+            ("1bp", 1.00375),
+            ("2.5cm", 2.5 * CM),
+            ("1cm+1pt", CM + 1.0),
+        ],
+        |r| {
+            let (v, unit) = evaluate(r.0.as_bytes(), 0.0, 0.0).unwrap();
+            if near(v, r.1, 1e-9) && unit { Ok(()) } else { Err(format!("{v} {unit}")) }
+        },
+    );
     assert!(!evaluate(b"2", 0.0, 0.0).unwrap().1);
 }
 
@@ -137,7 +170,9 @@ fn line_width_is_available() {
 
 #[test]
 fn malformed_expressions_are_refused() {
-    check(&["", "1+", "*2", "(1", "1)", "nope", "nope(1)", "1 2", "sin(", "sin(1", "\\nope", "1..2"], |s| if evaluate(s.as_bytes(), 0.0, 0.0).is_none() { Ok(()) } else { Err("evaluated".into()) });
+    check(&["", "1+", "*2", "(1", "1)", "nope", "nope(1)", "1 2", "sin(", "sin(1", "\\nope", "1..2"], |s| {
+        if evaluate(s.as_bytes(), 0.0, 0.0).is_none() { Ok(()) } else { Err("evaluated".into()) }
+    });
 }
 
 #[test]
@@ -239,7 +274,21 @@ fn matrices_compose_in_order() {
 
 #[test]
 fn color_names_resolve() {
-    check(&[("red", 0xff0000u32), ("green", 0x00ff00), ("blue", 0x0000ff), ("black", 0), ("white", 0xffffff), ("gray", 0x808080), ("grey", 0x808080), ("cyan", 0x00ffff), ("magenta", 0xff00ff), ("yellow", 0xffff00)], |r| if color_by_name(r.0.as_bytes()) == Some(r.1) { Ok(()) } else { Err("wrong".into()) });
+    check(
+        &[
+            ("red", 0xff0000u32),
+            ("green", 0x00ff00),
+            ("blue", 0x0000ff),
+            ("black", 0),
+            ("white", 0xffffff),
+            ("gray", 0x808080),
+            ("grey", 0x808080),
+            ("cyan", 0x00ffff),
+            ("magenta", 0xff00ff),
+            ("yellow", 0xffff00),
+        ],
+        |r| if color_by_name(r.0.as_bytes()) == Some(r.1) { Ok(()) } else { Err("wrong".into()) },
+    );
     assert_eq!(color_by_name(b"nope"), None);
 }
 
@@ -252,7 +301,20 @@ fn colors_mix_by_percent() {
 
 #[test]
 fn color_expressions_follow_xcolor() {
-    check(&[("gray!20", 0xe6e6e6u32), ("red!50", 0xff8080), ("red!100", 0xff0000), ("red!0", 0xffffff), ("red!50!blue", 0x800080), ("green!50!black", 0x008000), ("red!150", 0xff0000), ("red!-10", 0xffffff), ("none", NO_COLOR)], |r| if color_value(r.0.as_bytes()) == Some(r.1) { Ok(()) } else { Err(format!("{:x?}", color_value(r.0.as_bytes()))) });
+    check(
+        &[
+            ("gray!20", 0xe6e6e6u32),
+            ("red!50", 0xff8080),
+            ("red!100", 0xff0000),
+            ("red!0", 0xffffff),
+            ("red!50!blue", 0x800080),
+            ("green!50!black", 0x008000),
+            ("red!150", 0xff0000),
+            ("red!-10", 0xffffff),
+            ("none", NO_COLOR),
+        ],
+        |r| if color_value(r.0.as_bytes()) == Some(r.1) { Ok(()) } else { Err(format!("{:x?}", color_value(r.0.as_bytes()))) },
+    );
 }
 
 #[test]
@@ -262,7 +324,21 @@ fn bad_color_expressions_are_refused() {
 
 #[test]
 fn tip_names_resolve() {
-    check(&[(">", TIP_DEFAULT), ("<", TIP_DEFAULT), ("to", TIP_OPEN), ("To", TIP_OPEN), ("Stealth", TIP_STEALTH), ("stealth", TIP_STEALTH), ("latex", TIP_STEALTH), ("Latex", TIP_STEALTH), ("LaTeX", TIP_STEALTH), ("", TIP_NONE)], |r| if tip_named(stat(r.0)).map(|t| t.kind) == Some(r.1) { Ok(()) } else { Err("wrong".into()) });
+    check(
+        &[
+            (">", TIP_DEFAULT),
+            ("<", TIP_DEFAULT),
+            ("to", TIP_OPEN),
+            ("To", TIP_OPEN),
+            ("Stealth", TIP_STEALTH),
+            ("stealth", TIP_STEALTH),
+            ("latex", TIP_STEALTH),
+            ("Latex", TIP_STEALTH),
+            ("LaTeX", TIP_STEALTH),
+            ("", TIP_NONE),
+        ],
+        |r| if tip_named(stat(r.0)).map(|t| t.kind) == Some(r.1) { Ok(()) } else { Err("wrong".into()) },
+    );
     assert!(tip_named(stat("nope")).is_none());
 }
 

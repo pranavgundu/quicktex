@@ -8,6 +8,7 @@
   import { charIndex } from './lib/latex'
   import { svgToPng } from './lib/png'
   import { remember, remembered } from './lib/storage'
+  import { measure, timeTex, timeText } from './lib/timing'
 
   const layoutKey = 'quicktex-layout'
   const firstFormula = String.raw`\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}`
@@ -42,18 +43,6 @@
   const columnLeft = $derived(Math.floor((pageWidth - columnWidth) / 2))
   const spare = $derived(Math.max(stageHeight - sheetHeight - 2 * frame, 0))
 
-  function time(tex: string, mode: boolean) {
-    const start = performance.now()
-    let runs = 0
-    let elapsed = 0
-    do {
-      render(tex, mode)
-      runs++
-      elapsed = performance.now() - start
-    } while (elapsed < 2)
-    return (elapsed * 1000) / runs
-  }
-
   $effect(() => remember(layoutKey, layout))
 
   $effect(() => {
@@ -71,10 +60,10 @@
     if (empty) return
     if (!timed) {
       timed = true
-      micros = time(tex, mode)
+      micros = measure(() => render(tex, mode))
       return
     }
-    const timer = setTimeout(() => (micros = time(tex, mode)), timingDelay)
+    const timer = setTimeout(() => (micros = measure(() => render(tex, mode))), timingDelay)
     return () => clearTimeout(timer)
   })
 
@@ -86,8 +75,6 @@
     return Math.max(16, Math.min(64, across, down))
   })
 
-  const slow = $derived(micros >= 1000)
-  const amount = $derived(slow ? (micros / 1000).toFixed(1) : micros.toFixed(micros < 10 ? 1 : 0))
   const weight = $derived(`${(svg.length / 1024).toFixed(1)} KB`)
 
   function copyLabel(target: string, idle: string) {
@@ -127,8 +114,8 @@
       </h1>
       <p class="hidden text-sm text-quiet sm:block">
         <Typeset
-          text={`Rendered in ${amount} ${slow ? 'ms' : 'µs'}`}
-          tex={`\\text{${amount} }${slow ? '\\text{ms}' : '\\mu\\text{s}'}`}
+          text={`Rendered in ${timeText(micros)}`}
+          tex={timeTex(micros)}
         />
       </p>
       <p class="hidden text-sm text-quiet sm:block">

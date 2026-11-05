@@ -25,15 +25,18 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/download-artifact@v8
+      - name: Download site
+        uses: actions/download-artifact@v8
         with:
           name: github-pages
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
-      - uses: actions/upload-artifact@v7
+      - name: Stage site
+        uses: actions/upload-artifact@v7
         with:
           name: github-pages
           path: artifact.tar
           retention-days: 1
-      - id: deployment
+      - name: Deploy site
+        id: deployment
         uses: actions/deploy-pages@v5

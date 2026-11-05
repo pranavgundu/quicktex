@@ -12,4 +12,8 @@ export function documentPage(page: number): string;
 
 export function documentPdf(): Uint8Array;
 
+export function commandList(): string;
+
+export function documentWarnings(): number[];
+
 export function usePackage(name: string): void;

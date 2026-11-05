@@ -86,7 +86,10 @@ fn pages_can_be_read_in_any_order_and_repeatedly() {
 
 #[test]
 fn drawings_come_before_text() {
-    let mut d = good(&with("\\usepackage{tikz}", "\\begin{tikzpicture}\\fill[white] (0,0) rectangle (1,1);\\node at (0.5,0.5) {x};\\end{tikzpicture}"));
+    let mut d = good(&with(
+        "\\usepackage{tikz}",
+        "\\begin{tikzpicture}\\fill[white] (0,0) rectangle (1,1);\\node at (0.5,0.5) {x};\\end{tikzpicture}",
+    ));
     let svg = d.page(0);
     let lines: Vec<&str> = svg.split('\n').collect();
     assert!(lines[1].contains("fill=\"#ffffff\""), "{}", lines[1]);
@@ -94,7 +97,8 @@ fn drawings_come_before_text() {
 
 #[test]
 fn drawings_carry_their_style() {
-    let mut d = good(&with("\\usepackage{tikz}", "\\begin{tikzpicture}\\draw[red,dashed,line cap=round] (0,0) -- (1,0);\\end{tikzpicture}"));
+    let mut d =
+        good(&with("\\usepackage{tikz}", "\\begin{tikzpicture}\\draw[red,dashed,line cap=round] (0,0) -- (1,0);\\end{tikzpicture}"));
     let svg = d.page(0);
     for want in ["stroke=\"#ff0000\"", "stroke-dasharray=", "stroke-linecap=\"round\"", "fill=\"none\""] {
         assert!(svg.contains(want), "{want}");
@@ -118,9 +122,19 @@ fn compiles_are_repeatable() {
     for s in [LAB, SHAPES, SAMPLE] {
         let mut e = Engine::new();
         let pages = run(&mut e, s).unwrap();
-        let first: Vec<String> = (0..pages).map(|p| { let n = e.document_page(p); output(&e, n as usize) }).collect();
+        let first: Vec<String> = (0..pages)
+            .map(|p| {
+                let n = e.document_page(p);
+                output(&e, n as usize)
+            })
+            .collect();
         run(&mut e, s).unwrap();
-        let second: Vec<String> = (0..pages).map(|p| { let n = e.document_page(p); output(&e, n as usize) }).collect();
+        let second: Vec<String> = (0..pages)
+            .map(|p| {
+                let n = e.document_page(p);
+                output(&e, n as usize)
+            })
+            .collect();
         assert_eq!(first, second);
     }
 }
@@ -131,7 +145,7 @@ fn a_failed_compile_keeps_the_last_good_pages() {
     let pages = run(&mut e, LAB).unwrap();
     let n = e.document_page(0);
     let before = output(&e, n as usize);
-    assert!(run(&mut e, &LAB.replace("\\draw[dashed, gray]", "\\draw[wobble]")).is_err());
+    assert!(run(&mut e, &LAB.replace("\\end{document}", "{")).is_err());
     let n = e.document_page(0);
     assert_eq!(output(&e, n as usize), before);
     assert_eq!(e.laid.pages.len(), pages);
@@ -143,7 +157,7 @@ fn a_good_compile_after_a_failure_is_clean() {
     run(&mut e, LAB).unwrap();
     let n = e.document_page(1);
     let want = output(&e, n as usize);
-    for bad in ["\\begin{document}\\begin{figure}", "\\begin{document}$", "\\begin{document}\\foo", "\\begin{document}\\begin{tikzpicture}\\draw[wobble] (0,0);"] {
+    for bad in ["\\begin{document}\\begin{figure}", "\\begin{document}$", "\\begin{document}\\begin{tikzpicture}\\draw[wobble] (0,0);"] {
         assert!(run(&mut e, bad).is_err(), "{bad}");
         run(&mut e, LAB).unwrap();
         let n = e.document_page(1);

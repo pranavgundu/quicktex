@@ -12,26 +12,82 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
-  build:
+  format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup
         with:
-          bun-version: 1.4.4
-      - uses: dtolnay/rust-toolchain@stable
+          components: rustfmt
+
+      - name: Check Rust formatting
+        working-directory: wasm-core
+        run: cargo fmt --check
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup
         with:
-          targets: wasm32-unknown-unknown
-      - run: bun install --frozen-lockfile
+          components: clippy
+
+      - name: Lint Rust
+        working-directory: wasm-core
+        run: cargo clippy -- -A clippy::all -D clippy::correctness
+
+      - name: Check types
+        run: bun run check
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup
+
       - name: Rust tests
         run: bun run test:rust
-      - run: bun run wasm
-      - run: bun run check
-      - run: bun run build
-      - name: Tests
+
+      - name: Build wasm
+        run: bun run wasm
+
+      - name: Build site
+        run: bun run build
+
+      - name: Web tests
         run: bun run test
-      - if: github.ref == 'refs/heads/main'
+
+  build:
+    needs: [format, lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Set up build environment
+        uses: ./.github/actions/setup
+
+      - name: Build wasm
+        run: bun run wasm
+
+      - name: Build site
+        run: bun run build
+
+      - name: Upload site
+        if: github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v5
         with:
           path: dist

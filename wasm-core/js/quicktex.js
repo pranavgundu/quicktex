@@ -80,6 +80,15 @@ export function renderDocument(tex) {
   return pages;
 }
 
+export function commandList() {
+  return text(exports_.qt_names());
+}
+
+export function documentWarnings() {
+  const list = text(exports_.qt_warnings());
+  return list ? list.trim().split('\n').map(Number) : [];
+}
+
 export function documentPage(page) {
   return text(exports_.qt_page(page));
 }

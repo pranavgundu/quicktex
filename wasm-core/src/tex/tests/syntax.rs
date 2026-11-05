@@ -3,32 +3,83 @@ use super::*;
 #[test]
 fn scripts_accept_single_tokens_and_groups() {
     check(&[("x^{2}", "x^2"), ("x_{i}", "x_i"), ("x^{\\alpha}", "x^\\alpha"), ("x_{\\beta}", "x_\\beta")], |r| same(r.0, r.1));
-    check(&[("x_i^2", "x^2_i"), ("x_{i}^{2}", "x^{2}_{i}"), ("\\sum_{i}^{n}", "\\sum^{n}_{i}"), ("\\int_0^1", "\\int^1_0")], |r| if measure_display(r.0) == measure_display(r.1) { Ok(()) } else { Err("sizes differ".into()) });
+    check(&[("x_i^2", "x^2_i"), ("x_{i}^{2}", "x^{2}_{i}"), ("\\sum_{i}^{n}", "\\sum^{n}_{i}"), ("\\int_0^1", "\\int^1_0")], |r| {
+        if measure_display(r.0) == measure_display(r.1) { Ok(()) } else { Err("sizes differ".into()) }
+    });
 }
 
 #[test]
 fn whitespace_does_not_matter_in_math() {
-    check(&[("a  b", "ab"), ("a\nb", "ab"), ("a\tb", "ab"), (" a ", "a"), ("\\alpha  x", "\\alpha x"), ("x ^ 2", "x^2"), ("x _ i", "x_i"), ("\\frac {a} {b}", "\\frac{a}{b}"), ("\\sqrt {x}", "\\sqrt{x}"), ("a + b", "a+b"), ("a = b", "a=b"), ("\\sum _ { i }", "\\sum_{i}")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("a  b", "ab"),
+            ("a\nb", "ab"),
+            ("a\tb", "ab"),
+            (" a ", "a"),
+            ("\\alpha  x", "\\alpha x"),
+            ("x ^ 2", "x^2"),
+            ("x _ i", "x_i"),
+            ("\\frac {a} {b}", "\\frac{a}{b}"),
+            ("\\sqrt {x}", "\\sqrt{x}"),
+            ("a + b", "a+b"),
+            ("a = b", "a=b"),
+            ("\\sum _ { i }", "\\sum_{i}"),
+        ],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]
 fn comments_are_dropped() {
-    check(&[("a%comment\nb", "ab"), ("a%", "a"), ("a% x^2 \\frac{\nb", "ab"), ("%only\nx", "x"), ("\\frac{a}%c\n{b}", "\\frac{a}{b}")], |r| same(r.0, r.1));
+    check(
+        &[("a%comment\nb", "ab"), ("a%", "a"), ("a% x^2 \\frac{\nb", "ab"), ("%only\nx", "x"), ("\\frac{a}%c\n{b}", "\\frac{a}{b}")],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]
 fn fractions_accept_short_arguments() {
-    check(&[("\\frac12", "\\frac{1}{2}"), ("\\frac ab", "\\frac{a}{b}"), ("\\frac1b", "\\frac{1}{b}"), ("\\frac\\alpha\\beta", "\\frac{\\alpha}{\\beta}"), ("\\sqrt2", "\\sqrt{2}"), ("\\sqrt\\alpha", "\\sqrt{\\alpha}"), ("\\binom nk", "\\binom{n}{k}"), ("\\hat x", "\\hat{x}"), ("\\vec v", "\\vec{v}"), ("\\mathbf x", "\\mathbf{x}")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("\\frac12", "\\frac{1}{2}"),
+            ("\\frac ab", "\\frac{a}{b}"),
+            ("\\frac1b", "\\frac{1}{b}"),
+            ("\\frac\\alpha\\beta", "\\frac{\\alpha}{\\beta}"),
+            ("\\sqrt2", "\\sqrt{2}"),
+            ("\\sqrt\\alpha", "\\sqrt{\\alpha}"),
+            ("\\binom nk", "\\binom{n}{k}"),
+            ("\\hat x", "\\hat{x}"),
+            ("\\vec v", "\\vec{v}"),
+            ("\\mathbf x", "\\mathbf{x}"),
+        ],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]
 fn infix_forms_match_the_commands() {
-    check(&[("{a \\over b}", "\\frac{a}{b}"), ("{n \\choose k}", "\\binom{n}{k}"), ("a \\over b", "\\frac{a}{b}"), ("{a+b \\over c+d}", "\\frac{a+b}{c+d}")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("{a \\over b}", "\\frac{a}{b}"),
+            ("{n \\choose k}", "\\binom{n}{k}"),
+            ("a \\over b", "\\frac{a}{b}"),
+            ("{a+b \\over c+d}", "\\frac{a+b}{c+d}"),
+        ],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]
 fn style_commands_match_the_shorthand() {
-    check(&[("\\dfrac{a}{b}", "\\displaystyle\\frac{a}{b}"), ("\\displaystyle x", "x"), ("\\displaystyle\\sum_i", "\\sum_i"), ("\\dbinom{n}{k}", "\\displaystyle\\binom{n}{k}")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("\\dfrac{a}{b}", "\\displaystyle\\frac{a}{b}"),
+            ("\\displaystyle x", "x"),
+            ("\\displaystyle\\sum_i", "\\sum_i"),
+            ("\\dbinom{n}{k}", "\\displaystyle\\binom{n}{k}"),
+        ],
+        |r| same(r.0, r.1),
+    );
     let a = inline("\\tfrac{a}{b}").unwrap();
     let b = inline("\\frac{a}{b}").unwrap();
     assert_eq!(a, b);
@@ -124,33 +175,76 @@ fn mkern_matches_named_spaces_within_rounding() {
 
 #[test]
 fn old_font_switches_match_new_commands() {
-    check(&[("{\\rm x}", "\\mathrm{x}"), ("{\\bf x}", "\\mathbf{x}"), ("{\\it x}", "\\mathit{x}"), ("{\\sf x}", "\\mathsf{x}"), ("{\\tt x}", "\\mathtt{x}"), ("{\\cal X}", "\\mathcal{X}")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("{\\rm x}", "\\mathrm{x}"),
+            ("{\\bf x}", "\\mathbf{x}"),
+            ("{\\it x}", "\\mathit{x}"),
+            ("{\\sf x}", "\\mathsf{x}"),
+            ("{\\tt x}", "\\mathtt{x}"),
+            ("{\\cal X}", "\\mathcal{X}"),
+        ],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]
 fn operators_match_operatorname() {
-    check(&["sin", "cos", "tan", "log", "ln", "exp", "det", "dim", "ker", "deg", "arg", "cot", "sec", "csc", "sinh", "cosh", "tanh", "arcsin", "arccos", "arctan", "gcd", "hom"], |n| same(&format!("\\{n}"), &format!("\\operatorname{{{n}}}")));
+    check(
+        &[
+            "sin", "cos", "tan", "log", "ln", "exp", "det", "dim", "ker", "deg", "arg", "cot", "sec", "csc", "sinh", "cosh", "tanh",
+            "arcsin", "arccos", "arctan", "gcd", "hom",
+        ],
+        |n| same(&format!("\\{n}"), &format!("\\operatorname{{{n}}}")),
+    );
 }
 
 #[test]
 fn delimiters_can_be_written_two_ways() {
-    check(&[("\\left(x\\right)", "\\left( x \\right)"), ("\\left\\{x\\right\\}", "\\left\\lbrace x\\right\\rbrace"), ("\\left[x\\right]", "\\left\\lbrack x\\right\\rbrack"), ("\\left|x\\right|", "\\left\\vert x\\right\\vert"), ("\\left\\|x\\right\\|", "\\left\\Vert x\\right\\Vert")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("\\left(x\\right)", "\\left( x \\right)"),
+            ("\\left\\{x\\right\\}", "\\left\\lbrace x\\right\\rbrace"),
+            ("\\left[x\\right]", "\\left\\lbrack x\\right\\rbrack"),
+            ("\\left|x\\right|", "\\left\\vert x\\right\\vert"),
+            ("\\left\\|x\\right\\|", "\\left\\Vert x\\right\\Vert"),
+        ],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]
 fn environments_ignore_trailing_row_break() {
-    check(&[("\\begin{matrix}a\\\\b\\\\\\end{matrix}", "\\begin{matrix}a\\\\b\\end{matrix}"), ("\\begin{cases}a\\\\b\\\\\\end{cases}", "\\begin{cases}a\\\\b\\end{cases}"), ("\\begin{aligned}a&=b\\\\\\end{aligned}", "\\begin{aligned}a&=b\\end{aligned}")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("\\begin{matrix}a\\\\b\\\\\\end{matrix}", "\\begin{matrix}a\\\\b\\end{matrix}"),
+            ("\\begin{cases}a\\\\b\\\\\\end{cases}", "\\begin{cases}a\\\\b\\end{cases}"),
+            ("\\begin{aligned}a&=b\\\\\\end{aligned}", "\\begin{aligned}a&=b\\end{aligned}"),
+        ],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]
 fn matrix_shorthands_add_delimiters() {
-    check(&[("\\begin{pmatrix}a\\end{pmatrix}", "\\left(\\begin{matrix}a\\end{matrix}\\right)"), ("\\begin{bmatrix}a\\end{bmatrix}", "\\left[\\begin{matrix}a\\end{matrix}\\right]"), ("\\begin{Bmatrix}a\\end{Bmatrix}", "\\left\\{\\begin{matrix}a\\end{matrix}\\right\\}"), ("\\begin{vmatrix}a\\end{vmatrix}", "\\left|\\begin{matrix}a\\end{matrix}\\right|"), ("\\begin{Vmatrix}a\\end{Vmatrix}", "\\left\\|\\begin{matrix}a\\end{matrix}\\right\\|")], |r| same(r.0, r.1));
+    check(
+        &[
+            ("\\begin{pmatrix}a\\end{pmatrix}", "\\left(\\begin{matrix}a\\end{matrix}\\right)"),
+            ("\\begin{bmatrix}a\\end{bmatrix}", "\\left[\\begin{matrix}a\\end{matrix}\\right]"),
+            ("\\begin{Bmatrix}a\\end{Bmatrix}", "\\left\\{\\begin{matrix}a\\end{matrix}\\right\\}"),
+            ("\\begin{vmatrix}a\\end{vmatrix}", "\\left|\\begin{matrix}a\\end{matrix}\\right|"),
+            ("\\begin{Vmatrix}a\\end{Vmatrix}", "\\left\\|\\begin{matrix}a\\end{matrix}\\right\\|"),
+        ],
+        |r| same(r.0, r.1),
+    );
 }
 
 #[test]
 fn colors_can_be_written_every_way() {
     check(&[("\\textcolor{red}{x}", "\\color{red}x"), ("{\\color{blue}x}", "\\textcolor{blue}{x}")], |r| same(r.0, r.1));
-    check(&[("\\textcolor{red}{x}", "\\textcolor{#ff0000}{x}"), ("\\textcolor{#f00}{x}", "\\textcolor{#FF0000}{x}")], |r| if measure(r.0) == measure(r.1) { Ok(()) } else { Err("sizes differ".into()) });
+    check(&[("\\textcolor{red}{x}", "\\textcolor{#ff0000}{x}"), ("\\textcolor{#f00}{x}", "\\textcolor{#FF0000}{x}")], |r| {
+        if measure(r.0) == measure(r.1) { Ok(()) } else { Err("sizes differ".into()) }
+    });
 }
 
 #[test]
@@ -290,7 +384,26 @@ fn valid_formulas_render() {
 
 #[test]
 fn empty_groups_are_harmless() {
-    check(&["{}", "{}{}", "x{}", "{}x", "{}^2", "{}_2", "x^{}", "x_{}", "\\frac{}{}", "\\sqrt{}", "\\left(\\right)", "\\text{}", "\\mathbf{}", "\\begin{matrix}\\end{matrix}", "\\overline{}"], |s| valid(s));
+    check(
+        &[
+            "{}",
+            "{}{}",
+            "x{}",
+            "{}x",
+            "{}^2",
+            "{}_2",
+            "x^{}",
+            "x_{}",
+            "\\frac{}{}",
+            "\\sqrt{}",
+            "\\left(\\right)",
+            "\\text{}",
+            "\\mathbf{}",
+            "\\begin{matrix}\\end{matrix}",
+            "\\overline{}",
+        ],
+        |s| valid(s),
+    );
 }
 
 #[test]
@@ -316,7 +429,9 @@ fn escapes_draw_ink() {
 #[test]
 fn math_font_commands_change_the_glyphs() {
     let plain = inline("x").unwrap();
-    check(&["\\mathbf{x}", "\\mathrm{x}", "\\mathsf{x}", "\\mathtt{x}", "\\mathfrak{x}", "\\boldsymbol{x}"], |s| if inline(s).map_err(|e| format!("{e:?}"))? != plain { Ok(()) } else { Err("same as plain".into()) });
+    check(&["\\mathbf{x}", "\\mathrm{x}", "\\mathsf{x}", "\\mathtt{x}", "\\mathfrak{x}", "\\boldsymbol{x}"], |s| {
+        if inline(s).map_err(|e| format!("{e:?}"))? != plain { Ok(()) } else { Err("same as plain".into()) }
+    });
 }
 
 #[test]

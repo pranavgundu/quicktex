@@ -1,6 +1,56 @@
 use super::*;
 
-const TOKENS: &[&str] = &["{", "}", "$", "\\\\", "&", "%", "\\begin{figure}", "\\end{figure}", "\\begin{tabular}{c}", "\\end{tabular}", "\\begin{tikzpicture}", "\\end{tikzpicture}", "\\begin{axis}", "\\end{axis}", "\\draw", "\\node", "\\addplot", "--", "(", ")", "[", "]", ";", ",", "=", "\\caption{", "\\section{", "\\newpage", "\\item", "\\begin{itemize}", "\\end{itemize}", "\\usepackage{", "scale=0", "scale=1e9", "1e999", "99999999", "-99999999", "rotate=", "arc (", "circle (", "domain=", "samples=9999999", "xmin=1,xmax=0", "\\begin{scope}", "\\end{scope}", "é", "日", "\0", "\n\n"];
+const TOKENS: &[&str] = &[
+    "{",
+    "}",
+    "$",
+    "\\\\",
+    "&",
+    "%",
+    "\\begin{figure}",
+    "\\end{figure}",
+    "\\begin{tabular}{c}",
+    "\\end{tabular}",
+    "\\begin{tikzpicture}",
+    "\\end{tikzpicture}",
+    "\\begin{axis}",
+    "\\end{axis}",
+    "\\draw",
+    "\\node",
+    "\\addplot",
+    "--",
+    "(",
+    ")",
+    "[",
+    "]",
+    ";",
+    ",",
+    "=",
+    "\\caption{",
+    "\\section{",
+    "\\newpage",
+    "\\item",
+    "\\begin{itemize}",
+    "\\end{itemize}",
+    "\\usepackage{",
+    "scale=0",
+    "scale=1e9",
+    "1e999",
+    "99999999",
+    "-99999999",
+    "rotate=",
+    "arc (",
+    "circle (",
+    "domain=",
+    "samples=9999999",
+    "xmin=1,xmax=0",
+    "\\begin{scope}",
+    "\\end{scope}",
+    "é",
+    "日",
+    "\0",
+    "\n\n",
+];
 
 fn survive(s: &str, e: &mut Engine) -> bool {
     match run(e, s) {
@@ -84,7 +134,20 @@ fn every_deletion_from_the_shapes_document_is_handled() {
 #[test]
 fn extreme_drawing_numbers_stay_finite() {
     let mut e = Engine::new();
-    for line in ["\\draw (0,0) -- (1e9,1e9);", "\\draw (0,0) -- (1e300,0);", "\\draw[scale=1e9] (0,0) -- (1,1);", "\\draw[line width=1e9pt] (0,0) -- (1,0);", "\\draw (0,0) circle (1e9);", "\\draw (0,0) arc (0:1e9:1);", "\\draw[rotate=1e9] (0,0) -- (1,0);", "\\draw[scale=0] (0,0) -- (1,1);", "\\draw (0,0) ellipse (0 and 0);", "\\draw (0,0) -- ({1/0},0);", "\\draw (0,0) -- ({ln(0)},0);", "\\draw (0,0) -- ({sqrt(-1)},0);"] {
+    for line in [
+        "\\draw (0,0) -- (1e9,1e9);",
+        "\\draw (0,0) -- (1e300,0);",
+        "\\draw[scale=1e9] (0,0) -- (1,1);",
+        "\\draw[line width=1e9pt] (0,0) -- (1,0);",
+        "\\draw (0,0) circle (1e9);",
+        "\\draw (0,0) arc (0:1e9:1);",
+        "\\draw[rotate=1e9] (0,0) -- (1,0);",
+        "\\draw[scale=0] (0,0) -- (1,1);",
+        "\\draw (0,0) ellipse (0 and 0);",
+        "\\draw (0,0) -- ({1/0},0);",
+        "\\draw (0,0) -- ({ln(0)},0);",
+        "\\draw (0,0) -- ({sqrt(-1)},0);",
+    ] {
         let s = with("\\usepackage{tikz}", &format!("\\begin{{tikzpicture}}{line}\\end{{tikzpicture}}"));
         survive(&s, &mut e);
     }
@@ -93,15 +156,32 @@ fn extreme_drawing_numbers_stay_finite() {
 #[test]
 fn extreme_plot_settings_stay_finite() {
     let mut e = Engine::new();
-    for options in ["xmin=1,xmax=0", "xmin=0,xmax=0", "ymin=1e300,ymax=1e301", "xmin=-1e300,xmax=1e300", "width=0cm", "height=0cm", "width=1e9cm", "width=-5cm"] {
-        let s = with("\\usepackage{pgfplots}", &format!("\\begin{{tikzpicture}}\\begin{{axis}}[{options}]\\addplot coordinates {{(0,0) (1,1)}};\\end{{axis}}\\end{{tikzpicture}}"));
+    for options in [
+        "xmin=1,xmax=0",
+        "xmin=0,xmax=0",
+        "ymin=1e300,ymax=1e301",
+        "xmin=-1e300,xmax=1e300",
+        "width=0cm",
+        "height=0cm",
+        "width=1e9cm",
+        "width=-5cm",
+    ] {
+        let s = with(
+            "\\usepackage{pgfplots}",
+            &format!(
+                "\\begin{{tikzpicture}}\\begin{{axis}}[{options}]\\addplot coordinates {{(0,0) (1,1)}};\\end{{axis}}\\end{{tikzpicture}}"
+            ),
+        );
         survive(&s, &mut e);
     }
 }
 
 #[test]
 fn huge_sample_counts_are_bounded() {
-    let d = good(&with("\\usepackage{pgfplots}", "\\begin{tikzpicture}\\begin{axis}\\addplot[domain=0:1,samples=99999999] {x};\\end{axis}\\end{tikzpicture}"));
+    let d = good(&with(
+        "\\usepackage{pgfplots}",
+        "\\begin{tikzpicture}\\begin{axis}\\addplot[domain=0:1,samples=99999999] {x};\\end{axis}\\end{tikzpicture}",
+    ));
     assert!(d.laid().segs.len() < 5000);
 }
 
@@ -142,9 +222,9 @@ fn a_table_wider_than_the_page_renders() {
 }
 
 #[test]
-fn tables_stop_at_thirty_two_columns() {
+fn tables_keep_thirty_two_columns() {
     body(&format!("\\begin{{tabular}}{{{}}}a\\end{{tabular}}", "c".repeat(32)));
-    assert!(compile(&article(&format!("\\begin{{tabular}}{{{}}}a\\end{{tabular}}", "c".repeat(33)))).is_err());
+    body(&format!("\\begin{{tabular}}{{{}}}a\\end{{tabular}}", "c".repeat(40)));
 }
 
 #[test]
@@ -153,23 +233,31 @@ fn a_float_taller_than_the_page_renders() {
 }
 
 #[test]
-fn errors_point_at_the_right_line() {
+fn unknown_commands_warn_at_the_right_line() {
     let s = article("one\n\ntwo\n\n\\foo\n\nthree");
-    let (message, at) = compile(&s).err().unwrap();
-    assert_eq!(message, "unknown command");
+    let at = good(&s).e.warned[0] as usize;
     assert_eq!(&s[at..at + 4], "\\foo");
 }
 
 #[test]
+fn errors_point_at_the_right_line() {
+    let s = article("one\n\ntwo\n\n\\begin{center}\n\nthree\\end{quote}");
+    let (message, at) = compile(&s).err().unwrap();
+    assert_eq!(message, "unknown or mismatched environment");
+    assert_eq!(s[..at].matches('\n').count(), 8);
+}
+
+#[test]
 fn mismatched_environments_are_errors() {
-    for s in ["\\begin{center}x\\end{quote}", "\\begin{center}x", "\\end{center}", "\\begin{nope}x\\end{nope}"] {
+    for s in ["\\begin{center}x\\end{quote}", "\\begin{center}x", "\\end{center}"] {
         assert!(compile(&article(s)).is_err(), "{s}");
     }
 }
 
 #[test]
 fn unclosed_math_is_an_error() {
-    for s in ["$x", "\\[x", "\\(x", "\\begin{equation}x", "\\begin{align}x"] {
+    for s in ["\\[x", "\\(x", "\\begin{equation}x", "\\begin{align}x"] {
         assert!(compile(&article(s)).is_err(), "{s}");
     }
+    assert!(!good(&article("$x")).e.warned.is_empty());
 }

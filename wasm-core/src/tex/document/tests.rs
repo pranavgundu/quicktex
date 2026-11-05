@@ -1,6 +1,7 @@
 use super::*;
 use crate::tex::tests::{Rng, feed, mutate, output, well_formed};
 
+mod compat;
 mod drawing;
 mod floats;
 mod layout;
