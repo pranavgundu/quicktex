@@ -1,8 +1,5 @@
-use crate::data::*;
 use crate::tex::*;
 use alloc::vec::Vec;
-#[cfg(not(test))]
-use core::arch::wasm32::{v128, v128_load, v128_store};
 
 static DIGITS: [u8; 200] = {
     let mut t = [0u8; 200];
@@ -107,27 +104,6 @@ unsafe fn em(p: &mut *mut u8, v: i32) {
     }
 }
 
-#[cfg(test)]
-unsafe fn copy_path(p: &mut *mut u8, src: *const u8, len: usize) {
-    unsafe {
-        core::ptr::copy_nonoverlapping(src, *p, len);
-        *p = p.add(len);
-    }
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-unsafe fn copy_path(p: &mut *mut u8, src: *const u8, len: usize) {
-    unsafe {
-        let mut i = 0;
-        while i < len {
-            v128_store(p.add(i) as *mut v128, v128_load(src.add(i) as *const v128));
-            i += 16;
-        }
-        *p = p.add(len);
-    }
-}
-
 unsafe fn quad(p: &mut *mut u8, ax: i32, ay: i32, bx: i32, by: i32) {
     unsafe {
         byte(p, b'q');
@@ -205,8 +181,9 @@ impl Engine {
         for it in &self.items {
             self.counts[it.g as usize + 1] += 1;
             cap += match it.kind {
-                IT_GLYPH => GLYPHS[it.a as usize].len as usize + 40,
+                IT_GLYPH => self.glyph_path(it.a as usize).len() + 40,
                 IT_RULE => 72,
+                IT_IMAGE => self.laid.images[it.a as usize].url.len() + 200,
                 _ => 512,
             };
         }
@@ -265,7 +242,7 @@ impl Engine {
                         if it.g != first.g || it.y / LINE_BAND != band {
                             break;
                         }
-                        Self::item(p, &it, g.scale);
+                        self.item(p, &it, g.scale);
                         i += 1;
                     }
                     put(p, b"\"/>\n");
@@ -276,7 +253,7 @@ impl Engine {
                     self.open_path(p, g);
                     for i in 0..n {
                         let it = *self.items.get_unchecked(i);
-                        Self::item(p, &it, g.scale);
+                        self.item(p, &it, g.scale);
                     }
                     put(p, b"\"/>");
                 }
@@ -291,7 +268,7 @@ impl Engine {
                         if it.g != gi {
                             break;
                         }
-                        Self::item(p, &it, g.scale);
+                        self.item(p, &it, g.scale);
                         i += 1;
                     }
                     put(p, b"\"/>");
@@ -306,7 +283,14 @@ impl Engine {
     pub(crate) fn text_paths(&self, items: &[Item], out: &mut Vec<u8>) {
         let mut cap = 64;
         for it in items {
-            cap += 96 + if it.kind == IT_GLYPH { GLYPHS[it.a as usize].len as usize + 40 } else { 512 };
+            cap += 96
+                + if it.kind == IT_GLYPH {
+                    self.glyph_path(it.a as usize).len() + 40
+                } else if it.kind == IT_IMAGE {
+                    self.laid.images[it.a as usize].url.len() + 200
+                } else {
+                    512
+                };
         }
         out.reserve(cap);
         unsafe {
@@ -319,7 +303,7 @@ impl Engine {
                 let g = self.groups[gi as usize];
                 self.open_path(p, g);
                 while i < items.len() && items[i].g == gi {
-                    Self::item(p, &items[i], g.scale);
+                    self.item(p, &items[i], g.scale);
                     i += 1;
                 }
                 put(p, b"\"/>");
@@ -349,11 +333,11 @@ impl Engine {
     }
 
     #[inline(always)]
-    unsafe fn item(p: &mut *mut u8, it: &Item, scale: u16) {
+    unsafe fn item(&self, p: &mut *mut u8, it: &Item, scale: u16) {
         unsafe {
             match it.kind {
                 IT_GLYPH => {
-                    let g = GLYPHS.get_unchecked(it.a as usize);
+                    let g = self.glyph_metric(it.a as usize);
                     let (mut x, mut y) = (it.x, it.y);
                     if scale != UNIT {
                         let inv = (1000i64 << 16) / scale as i64;
@@ -362,7 +346,23 @@ impl Engine {
                     }
                     byte(p, b'M');
                     pair(p, x + g.sx as i32, y + g.sy as i32);
-                    copy_path(p, PATHS.as_ptr().add(g.off as usize), g.len as usize);
+                    let path = self.glyph_path(it.a as usize);
+                    put(p, path);
+                }
+                IT_IMAGE => {
+                    let image = &self.laid.images[it.a as usize];
+                    put(p, b"\"/>\n<image x=\"");
+                    num(p, it.x);
+                    put(p, b"\" y=\"");
+                    num(p, it.y - image.size.1);
+                    put(p, b"\" width=\"");
+                    num(p, image.size.0);
+                    put(p, b"\" height=\"");
+                    num(p, image.size.1);
+                    put(p, b"\" href=\"");
+                    put(p, &image.url);
+                    put(p, b"\" preserveAspectRatio=\"none\"/>\n");
+                    self.open_path(p, self.groups[it.g as usize]);
                 }
                 IT_RULE => {
                     byte(p, b'M');

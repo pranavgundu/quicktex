@@ -1,7 +1,9 @@
+import type { ProjectFiles } from '../../wasm-core/js/quicktex.js'
+
 export type Sheet = [page: number, svg: string]
 
 export type Request =
-  | { kind: 'compile'; id: number; tex: string }
+  | { kind: 'compile'; id: number; tex: string; files?: ProjectFiles }
   | { kind: 'time'; id: number; micros: number }
   | { kind: 'watch'; id: number; pages: number[] }
   | { kind: 'pdf'; id: number }
@@ -37,7 +39,7 @@ export type Listeners = {
 export function connect(port: Port, on: Listeners) {
   let next = 0
   let running = false
-  let waiting: string | null = null
+  let waiting: { tex: string; files?: ProjectFiles } | null = null
   let timing: number | null = null
   const printing: ((bytes: Uint8Array) => void)[] = []
 
@@ -48,10 +50,10 @@ export function connect(port: Port, on: Listeners) {
   function advance() {
     if (running) return
     if (waiting !== null) {
-      const tex = waiting
+      const pending = waiting
       waiting = null
       running = true
-      send({ kind: 'compile', id: ++next, tex })
+      send({ kind: 'compile', id: ++next, ...pending })
     } else if (timing !== null) {
       const micros = timing
       timing = null
@@ -79,8 +81,9 @@ export function connect(port: Port, on: Listeners) {
   port.onerror = () => on.broken()
 
   return {
-    compile(tex: string) {
-      waiting = tex
+    compile(tex: string, files?: ProjectFiles) {
+      const project = files ?? waiting?.files
+      waiting = { tex, ...(project ? { files: project } : {}) }
       timing = null
       advance()
     },

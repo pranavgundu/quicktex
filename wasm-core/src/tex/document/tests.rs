@@ -4,6 +4,7 @@ use crate::tex::tests::{Rng, feed, mutate, output, well_formed};
 mod compat;
 mod drawing;
 mod floats;
+mod improvements;
 mod layout;
 mod output_pdf;
 mod pages;

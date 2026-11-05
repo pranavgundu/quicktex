@@ -1,0 +1,14 @@
+[package]
+name = "quicktex-fonts"
+version = "0.1.0"
+edition = "2024"
+[lib]
+crate-type = ["cdylib"]
+[dependencies]
+dlmalloc = { version = "0.2.14", features = ["global"] }
+ttf-parser = { version = "0.25.1", default-features = false, features = ["no-std-float"] }
+[profile.release]
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

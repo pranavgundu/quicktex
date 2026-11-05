@@ -29,7 +29,7 @@ jobs:
 
       - name: Check Rust formatting
         working-directory: wasm-core
-        run: cargo fmt --check
+        run: cargo fmt --check && cargo fmt --manifest-path ../wasm-fonts/Cargo.toml --check
 
   lint:
     runs-on: ubuntu-latest
@@ -44,7 +44,9 @@ jobs:
 
       - name: Lint Rust
         working-directory: wasm-core
-        run: cargo clippy -- -A clippy::all -D clippy::correctness
+        run: |
+          cargo clippy -- -A clippy::all -D clippy::correctness
+          cargo clippy --manifest-path ../wasm-fonts/Cargo.toml --target wasm32-unknown-unknown -- -A clippy::all -D clippy::correctness
 
       - name: Check types
         run: bun run check
@@ -66,6 +68,9 @@ jobs:
 
       - name: Build site
         run: bun run build
+
+      - name: Install PDF validation tools
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - name: Web tests
         run: bun run test

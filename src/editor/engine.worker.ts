@@ -1,4 +1,4 @@
-import { documentPage, documentPdf, documentWarnings, init, QuicktexError, renderDocument } from '../../wasm-core/js/quicktex.js'
+import { documentPage, documentPdf, documentWarnings, init, loadFontsFor, registerFont, setFiles, QuicktexError, renderDocument } from '../../wasm-core/js/quicktex.js'
 import { charIndex } from '../lib/latex'
 import { measure } from '../lib/timing'
 import type { Answer, Request, Sheet } from './engine'
@@ -57,6 +57,19 @@ function answer(request: Request): Answer {
 
 self.onmessage = async ({ data }: MessageEvent<Request>) => {
   await ready
+  if (data.kind === 'compile') {
+    if (data.files) setFiles(data.files);
+    try {
+      for (const [name, value] of Object.entries(data.files ?? {})) {
+        if (/\.(ttf|otf)$/i.test(name) && typeof value !== 'string') await registerFont(value);
+      }
+      const included = Object.values(data.files ?? {}).filter((value): value is string => typeof value === 'string').join(' ');
+      await loadFontsFor(data.tex + included);
+    } catch (error) {
+      self.postMessage({ kind: 'failed', id: data.id, message: String(error), at: 0, line: 1 });
+      return;
+    }
+  }
   const reply = answer(data)
   if (reply.kind === 'pdf') self.postMessage(reply, { transfer: [reply.bytes.buffer as ArrayBuffer] })
   else self.postMessage(reply)

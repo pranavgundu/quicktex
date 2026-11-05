@@ -8,7 +8,7 @@ bun run wasm
 bun run bench
 ```
 
-`bun run bench note paper` runs only those documents. `BENCH_SECONDS=5 bun run bench` shortens each measurement. A full run takes about 15 minutes. Compilers that are not installed are skipped.
+`bun run bench note paper` runs only those documents. `BENCH_SECONDS=5 bun run bench` shortens each measurement. A full run takes about 15 minutes. Compilers that are not installed are skipped. `BENCH_TOOLS=quicktex bun run bench` remeasures quicktex across every document while preserving the other compilers’ results.
 
 You need `hyperfine`, `pdfinfo` from Poppler, and any of `pdflatex`, `xelatex`, `lualatex`, `latexmk` and `tectonic`.
 
@@ -28,10 +28,10 @@ The formula table compares libraries that turn one formula into markup: KaTeX, M
 
 quicktex is faster partly because it does less. These are real differences, not fine print.
 
-- It handles a subset of LaTeX. Most real documents with custom classes, `\input` files or images will not come out the same, and any of these compilers will handle them better. The documents here use only what quicktex supports.
-- It is not TeX. There is no hyphenation or microtype, line breaks differ, and displayed equations sit further apart, which is why `formulas` runs to more pages.
-- Footnotes print under their paragraph, and plots use their own tick spacing.
-- Text in its PDF is drawn as shapes, so it cannot be selected or searched, and files come out far larger. See the PDF size table.
+- It handles a subset of LaTeX. Most real documents with custom classes or unsupported packages will not come out the same, and any of these compilers will handle them better. The documents here use only what quicktex supports.
+- It is not TeX. It uses English hyphenation patterns but has no microtype, line breaks still differ, and displayed equations sit further apart, which is why `formulas` runs to more pages.
+- Footnotes reserve space at the column bottom; plots use their own tick spacing.
+- PDF text uses embedded outline fonts with Unicode maps and can be selected and searched. Font encoding and compression differ from TeX; see the PDF size table.
 - It can use more memory than `pdflatex` on long documents. See the peak memory table.
 - TeX loads its format and packages on every run, so a fixed start-up cost makes up much of its time on small documents. The gap is widest on drawings, where TikZ and pgfplots run as TeX macros.
 - Most of quicktex's fresh process time is starting Bun and loading the wasm, not compiling. Compare the table of already loaded times.
@@ -49,3 +49,4 @@ Timings come from one machine. Compare the ratios, not the milliseconds.
 | `compile.ts` | Command line quicktex: `.tex` in, `.pdf` out |
 | `math.mjs` | The formula comparison |
 | `report.ts` | Turns `results.json` into `results.md` |
+| `comparison.json` | Before/after measurements for this implementation pass, including regressions |

@@ -1,7 +1,10 @@
 use crate::data::*;
 use alloc::vec::Vec;
 
+pub(crate) mod assets;
 mod document;
+mod fast_zip;
+mod fonts;
 mod macros;
 mod pdf;
 use document::{Laid, Word};
@@ -174,6 +177,7 @@ pub const IT_BRACE: u8 = 2;
 pub const IT_SLASH: u8 = 3;
 pub const IT_BACKSLASH: u8 = 4;
 pub const IT_UNDERBRACE: u8 = 5;
+pub const IT_IMAGE: u8 = 6;
 
 pub const UNIT: u16 = 1000;
 
@@ -326,7 +330,7 @@ pub struct Engine {
     mids: Vec<Mid>,
     pub(crate) out: Vec<u8>,
     doc: Laid,
-    laid: Laid,
+    pub(crate) laid: Laid,
     scratch: pdf::Scratch,
     store: document::Store,
     pub(crate) art: Vec<u8>,
@@ -336,6 +340,9 @@ pub struct Engine {
     pub(crate) order: Vec<u32>,
     pub(crate) counts: Vec<u32>,
     input: Vec<u8>,
+    fonts: fonts::Fonts,
+    paths: Vec<core::cell::OnceCell<Vec<u8>>>,
+    assets: assets::Assets,
     depth: u32,
     reparses: u32,
     over_stop: usize,
@@ -571,6 +578,9 @@ impl Engine {
             order: Vec::with_capacity(4096),
             counts: Vec::with_capacity(16),
             input: Vec::with_capacity(4096),
+            fonts: fonts::Fonts::default(),
+            paths: (0..crate::glyph_data::PATH_CHUNKS.len()).map(|_| core::cell::OnceCell::new()).collect(),
+            assets: assets::Assets::default(),
             depth: 0,
             reparses: 0,
             over_stop: usize::MAX,
@@ -791,7 +801,7 @@ impl Engine {
 
     #[inline(always)]
     fn push_glyph(&mut self, g: u16, x: i32, y: i32, grp: u16) {
-        if GLYPHS[g as usize].len != 0 {
+        if self.glyph_metric(g as usize).len != 0 {
             self.items.push(Item { x, y, a: g as i32, b: 0, g: grp, kind: IT_GLYPH });
         }
     }
@@ -991,7 +1001,7 @@ impl Engine {
                 g = v;
             }
         }
-        let m = &GLYPHS[g as usize];
+        let m = &self.glyph_metric(g as usize);
         let st = self.end();
         self.push_glyph(g, 0, 0, c.grp);
         let it = if c.font >= FV_RM && c.font <= FV_TT { 0 } else { sc(m.it as i32, c.scale) };
@@ -1518,7 +1528,7 @@ impl Engine {
                 let st = self.end();
                 let g = glyph_id(FONT_MAIN_REGULAR, 0xe020).unwrap_or(0);
                 self.push_glyph(g, 0, 0, c.grp);
-                let m = &GLYPHS[g as usize];
+                let m = &self.glyph_metric(g as usize);
                 Ok(self.atom(st, 0, sc(m.h as i32, c.scale), sc(m.d as i32, c.scale), REL))
             }
             K_BOXED => self.boxed(c),
@@ -1596,7 +1606,7 @@ impl Engine {
                         self.pos += 1;
                         let st = self.end();
                         self.push_glyph(g, 0, 0, upc.grp);
-                        let m = &GLYPHS[g as usize];
+                        let m = &self.glyph_metric(g as usize);
                         let b = self.close(st, sc(m.w as i32, upc.scale), sc(m.h as i32, upc.scale), sc(m.d as i32, upc.scale));
                         sup = Some(self.join(sup, b));
                     }
@@ -1711,7 +1721,7 @@ impl Engine {
     fn big_op(&mut self, c: &Ctx, s: &Sym) -> Atom {
         let big = c.style < ST_T;
         let g = if big { s.arg } else { s.glyph };
-        let m = &GLYPHS[g as usize];
+        let m = &self.glyph_metric(g as usize);
         let st = self.end();
         let (h, d) = (sc(m.h as i32, c.scale), sc(m.d as i32, c.scale));
         let shift = (h - d) / 2 - sc(AXIS, c.scale);
@@ -1868,7 +1878,7 @@ impl Engine {
         let mut pick: Option<(u16, u16)> = None;
         for &(f, scl) in &ladder[start..] {
             let g = glyph_id(f, 0x221a).unwrap_or(0);
-            let m = &GLYPHS[g as usize];
+            let m = &self.glyph_metric(g as usize);
             if sc(m.h as i32 + m.d as i32, scl) > need {
                 pick = Some((g, scl));
                 break;
@@ -1876,7 +1886,7 @@ impl Engine {
         }
         let (rule_w, adv, img_total) = match pick {
             Some((g, scl)) => {
-                let m = &GLYPHS[g as usize];
+                let m = &self.glyph_metric(g as usize);
                 (sc(THIN, scl), sc(m.w as i32, scl), sc(m.h as i32 + m.d as i32, scl))
             }
             None => (sc(THIN, size), sc(1056, size), need),
@@ -1889,15 +1899,15 @@ impl Engine {
         self.move_box(&inner, adv, 0);
         self.push_rule(c, adv, y_top, inner.w, rule_w);
         if let Some((g, scl)) = pick {
-            let m = &GLYPHS[g as usize];
+            let m = &self.glyph_metric(g as usize);
             let gg = self.grp(c.color, scl);
             self.push_glyph(g, 0, y_top + sc(m.h as i32, scl), gg);
         } else {
             let gg = self.grp(c.color, size);
             let top = glyph_id(FONT_SIZE4_REGULAR, 0xe001).unwrap_or(0);
             let bot = glyph_id(FONT_SIZE4_REGULAR, 0x23b7).unwrap_or(0);
-            let tm = &GLYPHS[top as usize];
-            let bm = &GLYPHS[bot as usize];
+            let tm = &self.glyph_metric(top as usize);
+            let bm = &self.glyph_metric(bot as usize);
             let th = sc(tm.h as i32, size);
             self.push_glyph(top, 0, y_top + th, gg);
             let by = y_top + img_total - sc(bm.d as i32, size);
@@ -2022,7 +2032,7 @@ impl Engine {
     }
 
     fn glyph_box(&mut self, c: &Ctx, g: u16, scale: u16) -> Bx {
-        let m = &GLYPHS[g as usize];
+        let m = &self.glyph_metric(g as usize);
         let (h, d) = (sc(m.h as i32, scale), sc(m.d as i32, scale));
         let axis = sc(AXIS, c.size);
         let y = (h - d) / 2 - axis;
@@ -2042,7 +2052,7 @@ impl Engine {
         let n = if spec.seq == Seq::Always { 3 } else { 7 };
         for &(f, scl) in &ladder[start..n] {
             let Some(g) = glyph_id(f, cp) else { continue };
-            let m = &GLYPHS[g as usize];
+            let m = &self.glyph_metric(g as usize);
             last = Some((g, scl));
             if sc(m.h as i32 + m.d as i32, scl) > total {
                 return self.glyph_box(c, g, scl);
@@ -2095,13 +2105,13 @@ impl Engine {
         let mut seg_top = y0;
         let mut seg_bot = y1;
         if let Some(g) = top {
-            let m = &GLYPHS[g as usize];
+            let m = &self.glyph_metric(g as usize);
             self.push_glyph(g, 0, y0 + sc(m.h as i32, size), gg);
             seg_top = y0 + dim(top) - OVERLAP;
             w = sc(m.w as i32, size);
         }
         if let Some(g) = bot {
-            let m = &GLYPHS[g as usize];
+            let m = &self.glyph_metric(g as usize);
             self.push_glyph(g, 0, y1 - sc(m.d as i32, size), gg);
             seg_bot = y1 - dim(bot) + OVERLAP;
             w = sc(m.w as i32, size);
@@ -2109,7 +2119,7 @@ impl Engine {
         let mut segs = [(seg_top, seg_bot), (0, 0)];
         let mut nseg = 1;
         if let Some(g) = mid {
-            let m = &GLYPHS[g as usize];
+            let m = &self.glyph_metric(g as usize);
             let mh = dim(mid);
             let my = (y0 + y1) / 2 - mh / 2;
             self.push_glyph(g, 0, my + sc(m.h as i32, size), gg);
@@ -2131,7 +2141,7 @@ impl Engine {
     fn accent(&mut self, c: &Ctx, s: &Sym) -> R<Atom> {
         let cc = self.restyle(c, c.style | 1);
         let b = self.arg(&cc)?;
-        let skew = self.single_glyph(&b).map_or(0, |g| sc(GLYPHS[g as usize].sk as i32, c.scale));
+        let skew = self.single_glyph(&b).map_or(0, |g| sc(self.glyph_metric(g as usize).sk as i32, c.scale));
         let ink = sc(s.arg as i32 - 2000, c.scale);
         Ok(self.over_glyph(c, b, s.glyph, b.w / 2 + skew - ink))
     }
@@ -2140,7 +2150,7 @@ impl Engine {
         let clear = b.h.min(sc(XHEIGHT, c.scale));
         let y = -(b.h - clear);
         self.push_glyph(g, x, y, c.grp);
-        let h = b.h.max(sc(GLYPHS[g as usize].h as i32, c.scale) - y);
+        let h = b.h.max(sc(self.glyph_metric(g as usize).h as i32, c.scale) - y);
         self.atom(b.s, b.w, h, b.d, ORD)
     }
 
@@ -2151,13 +2161,13 @@ impl Engine {
         let mut g = glyph_id(FONT_SIZE4_REGULAR, s.cp).unwrap_or(0);
         for f in fonts {
             if let Some(v) = glyph_id(f, s.cp) {
-                if sc(GLYPHS[v as usize].w as i32, c.scale) >= b.w {
+                if sc(self.glyph_metric(v as usize).w as i32, c.scale) >= b.w {
                     g = v;
                     break;
                 }
             }
         }
-        let w = sc(GLYPHS[g as usize].w as i32, c.scale);
+        let w = sc(self.glyph_metric(g as usize).w as i32, c.scale);
         Ok(self.over_glyph(c, b, g, (b.w - w) / 2))
     }
 
@@ -2179,7 +2189,7 @@ impl Engine {
     fn arrow_at(&mut self, c: &Ctx, left: bool, y_axis: i32, w: i32) {
         let cp = if left { 0x2190 } else { 0x2192 };
         let g = glyph_id(FONT_MAIN_REGULAR, cp).unwrap_or(0);
-        let aw = sc(GLYPHS[g as usize].w as i32, c.scale);
+        let aw = sc(self.glyph_metric(g as usize).w as i32, c.scale);
         let shaft = sc(THIN, c.scale);
         let tip = sc(56, c.scale);
         self.push_glyph(g, if left { 0 } else { w - aw }, y_axis + sc(AXIS, c.scale), c.grp);
@@ -2338,12 +2348,15 @@ impl Engine {
     }
 
     fn text_glyph(&mut self, c: &Ctx, font: u8, cp: u32, t: &mut Bx) -> R<()> {
-        let g = match glyph_id(font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp)) {
+        let g = match glyph_id(font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp)).or_else(|| self.fallback_glyph(cp)) {
             Some(g) => g,
             None => return self.missing_glyph(c, font, cp, t),
         };
-        let m = &GLYPHS[g as usize];
+        let m = &self.glyph_metric(g as usize);
         self.push_glyph(g, t.w, 0, c.grp);
+        if let Some(it) = self.items.last_mut() {
+            it.b = cp as i32;
+        }
         t.w += sc(m.w as i32, c.scale);
         t.h = t.h.max(sc(m.h as i32, c.scale));
         t.d = t.d.max(sc(m.d as i32, c.scale));
@@ -2366,7 +2379,7 @@ impl Engine {
 
     fn bare_glyph(&mut self, c: &Ctx, font: u8, cp: u32, t: &mut Bx) {
         if let Some(g) = glyph_id(font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp)) {
-            let m = &GLYPHS[g as usize];
+            let m = &self.glyph_metric(g as usize);
             self.push_glyph(g, t.w, 0, c.grp);
             t.w += sc(m.w as i32, c.scale);
             t.h = t.h.max(sc(m.h as i32, c.scale));
@@ -2380,7 +2393,7 @@ impl Engine {
         let Some(g) = document::accent_glyph(accent) else {
             return Ok(());
         };
-        let m = &GLYPHS[g as usize];
+        let m = &self.glyph_metric(g as usize);
         let width = sc(m.w as i32, c.scale);
         let tall = base < 0x80 && (base as u8).is_ascii_uppercase();
         let rise = if tall { sc(240, c.scale) } else { 0 };

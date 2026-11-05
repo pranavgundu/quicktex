@@ -20,6 +20,7 @@ const budget = Number(process.env.BENCH_SECONDS ?? 15)
 const limit = 600
 const clean = "sh -c 'rm -f *.aux *.toc *.log *.out *.pdf *.fls *.fdb_latexmk *.xdv'"
 const wanted = process.argv.slice(2)
+const selectedTools = (process.env.BENCH_TOOLS ?? "").split(",").filter(Boolean)
 const texPath = `/Library/TeX/texbin:${process.env.PATH}`
 const env = { ...process.env, PATH: texPath }
 
@@ -36,7 +37,7 @@ const engine = (name: string, flag: string): Tool => ({
 const tools: Tool[] = [
   {
     name: 'quicktex',
-    version: ['git', '-C', root, 'rev-parse', '--short', 'HEAD'],
+    version: ['git', '-C', root, 'describe', '--always', '--dirty'],
     command: (document) => `bun ${root}compile.ts ${document}.tex ${document}.pdf`,
     output: (document) => `${document}.pdf`,
   },
@@ -118,24 +119,26 @@ async function warm() {
   return out
 }
 
-const seen = tools.flatMap((tool) => {
+for (const name of selectedTools) {
+  if (!tools.some((tool) => tool.name === name)) throw new Error(`Unknown benchmark tool: ${name}`)
+}
+const seen = tools.filter((tool) => !selectedTools.length || selectedTools.includes(tool.name)).flatMap((tool) => {
   const version = available(tool)
   if (!version) console.log(`skipping ${tool.name}, not installed`)
   return version ? [{ tool, version }] : []
 })
 
+const previous = (wanted.length || selectedTools.length) && existsSync(`${root}results.json`) ? JSON.parse(readFileSync(`${root}results.json`, 'utf8')) : null
 const results: Record<string, Record<string, Result | Failure>> = {}
 for (const name of Object.keys(documents)) {
   if (wanted.length && !wanted.includes(name)) continue
-  results[name] = {}
+  results[name] = { ...previous?.results[name] }
   for (const { tool } of seen) {
     const result = measure(tool, name, documents[name].passes)
     results[name][tool.name] = result
     console.log(name.padEnd(10), tool.name.padEnd(10), 'failed' in result ? `failed: ${result.failed}` : `${result.median.toFixed(0)} ms, ${result.pages} pages, ${result.runs} runs`)
   }
 }
-
-const previous = wanted.length && existsSync(`${root}results.json`) ? JSON.parse(readFileSync(`${root}results.json`, 'utf8')) : null
 
 const math = spawnSync('node', [`${root}math.mjs`], { encoding: 'utf8', maxBuffer: 1 << 24 })
 if (math.status !== 0) throw new Error(math.stderr)
@@ -146,7 +149,7 @@ writeFileSync(
     {
       machine: { cpu: cpus()[0].model, cores: cpus().length, memory: Math.round(totalmem() / 2 ** 30), platform: `${process.platform} ${process.arch}` },
       date: new Date().toISOString().slice(0, 10),
-      versions: Object.fromEntries(seen.map(({ tool, version }) => [tool.name, version])),
+      versions: { ...previous?.versions, ...Object.fromEntries(seen.map(({ tool, version }) => [tool.name, version])) },
       documents: Object.fromEntries(Object.entries(documents).map(([name, document]) => [name, { about: document.about, passes: document.passes }])),
       results: { ...previous?.results, ...results },
       warm: { ...previous?.warm, ...(await warm()) },

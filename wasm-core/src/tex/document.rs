@@ -8,6 +8,8 @@ mod figure;
 mod tests;
 
 mod float;
+mod hyphen;
+mod legacy;
 mod plot;
 
 const CENTER_GAP: i32 = 800;
@@ -55,6 +57,8 @@ impl Fit {
 pub(super) struct Word {
     bx: Bx,
     forced: bool,
+    gap: bool,
+    hyphen: Option<Bx>,
 }
 
 #[derive(Clone, Copy)]
@@ -99,7 +103,9 @@ pub(super) struct Environment {
 pub(super) struct Store {
     pic: figure::Pic,
     settings: Vec<&'static [u8]>,
-    notes: Vec<(u32, &'static [u8])>,
+    hyphenations: Vec<(Vec<u8>, Vec<usize>)>,
+    notes: Vec<(u32, &'static [u8], u32)>,
+    foot_items: Vec<Item>,
     environments: Vec<Environment>,
     theorems: Vec<(&'static [u8], &'static [u8], u32)>,
     groups: Vec<(Ctx, u8, bool)>,
@@ -108,16 +114,18 @@ pub(super) struct Store {
     contents_text: Vec<u8>,
     wanted: bool,
     held: Vec<float::Held>,
+    deferred: Vec<float::Held>,
+    bottom: Vec<float::Held>,
     held_items: Vec<Item>,
     held_art: Vec<Art>,
     tail_items: Vec<Item>,
     tail_art: Vec<Art>,
-    cells: Vec<(Bx, u16, u16)>,
+    cells: Vec<(Bx, u16, u16, Vec<Word>)>,
     rows: Vec<float::TableRow>,
 }
 
 #[derive(Default)]
-pub(super) struct Laid {
+pub(crate) struct Laid {
     pub(super) items: Vec<Item>,
     pub(super) pages: Vec<u32>,
     pub(super) art: Vec<Art>,
@@ -130,6 +138,7 @@ pub(super) struct Laid {
     pub(super) w: i32,
     pub(super) h: i32,
     pub(super) pt: i32,
+    pub(crate) images: Vec<super::assets::Image>,
 }
 
 #[derive(Clone, Copy)]
@@ -153,11 +162,14 @@ struct Doc {
     open_groups: u32,
     standalone: Option<i32>,
     notes: u32,
+    note_h: i32,
+    bottom_h: i32,
     body_font: u8,
     lead: &'static [u8],
     flow: (i32, i32, i32),
     flowing: bool,
     table_width: i32,
+    picture_unit: f64,
     bare_list: bool,
     steps: bool,
     step_level: i32,
@@ -171,12 +183,14 @@ struct Doc {
     author: &'static [u8],
     date: &'static [u8],
     word: Option<Bx>,
+    glue_next: bool,
     label: Option<Label>,
     ctx: Ctx,
     columns: u8,
     column: u8,
     column_gap: i32,
     baseline: i32,
+    topskip: i32,
     frame_left: i32,
     frame_top: i32,
     frame_w: i32,
@@ -306,6 +320,7 @@ fn ends_paragraph(name: &[u8]) -> bool {
             | b"newtheorem"
             | b"input"
             | b"include"
+            | b"chemfig"
             | b"frametitle"
             | b"titlepage"
             | b"resizebox"
@@ -374,10 +389,16 @@ impl Engine {
         self.doc.art.clear();
         self.doc.segs.clear();
         self.doc.spun.clear();
+        self.doc.images.clear();
+        self.assets.active.clear();
         self.doc.art_pages.clear();
         self.store.held.clear();
+        self.store.deferred.clear();
+        self.store.bottom.clear();
         self.store.settings.clear();
         self.store.notes.clear();
+        self.store.hyphenations.clear();
+        self.store.foot_items.clear();
         self.store.groups.clear();
         self.store.environments.clear();
         self.store.theorems.clear();
@@ -396,11 +417,14 @@ impl Engine {
             open_groups: 0,
             standalone: None,
             notes: 0,
+            note_h: 0,
+            bottom_h: 0,
             body_font: 0,
             lead: b"",
             flow: (0, 0, 0),
             flowing: false,
             table_width: 0,
+            picture_unit: 1.0,
             bare_list: false,
             steps: false,
             step_level: 0,
@@ -414,12 +438,14 @@ impl Engine {
             author: b"",
             date: b"",
             word: None,
+            glue_next: false,
             label: None,
             ctx,
             columns: 1,
             column: 0,
             column_gap: 0,
             baseline: 1200,
+            topskip: TOPSKIP,
             frame_left: 0,
             frame_top: 0,
             frame_w: 0,
@@ -439,11 +465,12 @@ impl Engine {
         let done = self.blocks(&mut d, 0, 0, b"");
         match done.and_then(|()| {
             self.finish_page(&mut d)?;
-            while !self.store.held.is_empty() {
+            while !self.store.held.is_empty() || !self.store.deferred.is_empty() {
                 d.page += 1;
                 d.column = 0;
                 self.fit_frame(&mut d);
                 self.place_held(&mut d);
+                self.place_deferred(&mut d);
                 self.finish_page(&mut d)?;
             }
             Ok(())
@@ -610,6 +637,7 @@ impl Engine {
             b"\\parskip" => d.parskip = v,
             b"\\tabcolsep" => d.table_gap = v,
             b"\\intextsep" => d.float_gap = v,
+            b"\\unitlength" => d.picture_unit = v as f64 * self.doc.pt as f64 / 1000.0,
             _ => {}
         }
         Ok(())
@@ -807,7 +835,9 @@ impl Engine {
                 }
                 b"par" | b"raggedbottom" | b"flushbottom" | b"sloppy" | b"raggedright" | b"protect" => {}
                 b"centering" => d.center = true,
+                b"hyphenation" => self.hyphenation_exceptions()?,
                 b"caption" => self.caption(d, left, width)?,
+                b"chemfig" => self.chemfig(d, left, width)?,
                 b"usepackage" | b"RequirePackage" => self.package_line(d)?,
                 b"setlength" => self.set_length(d)?,
                 b"setcounter" => {
@@ -923,8 +953,7 @@ impl Engine {
                     self.skip_arguments();
                 }
                 b"input" | b"include" => {
-                    self.note(start);
-                    self.skip_arguments();
+                    self.input_file(d, left, narrow, name == b"include")?;
                 }
                 b"let" => self.alias()?,
                 _ if !d.preamble && lookup(name).is_some_and(|sy| sy.kind == K_TEXT || sy.kind == K_SYM) => {
@@ -1079,7 +1108,8 @@ impl Engine {
                 self.close_env(name)?;
                 d.steps = outer;
             }
-            b"picture" | b"pspicture" | b"pgfpicture" | b"filecontents" | b"filecontents*" | b"forest" | b"asy" | b"gnuplot" => {
+            b"picture" | b"pspicture" | b"forest" => self.legacy_picture(d, left, width, name)?,
+            b"pgfpicture" | b"filecontents" | b"filecontents*" | b"asy" | b"gnuplot" => {
                 self.note(start);
                 self.skip_environment(name);
             }
@@ -1394,7 +1424,7 @@ impl Engine {
         d.flowing = false;
         self.flush_word(d, false);
         self.set_lines(d, &c, left, width, d.flow.2, d.center, d.center);
-        self.flush_notes(d, left, width)
+        Ok(())
     }
 
     fn add_kern(&mut self, d: &mut Doc, kern: i32) {
@@ -1408,10 +1438,19 @@ impl Engine {
     }
 
     fn put_char(&mut self, d: &mut Doc, c: &Ctx, font: u8, cp: u32) -> R<()> {
+        let ideograph = matches!(cp,0x2e80..=0x9fff|0xac00..=0xd7ff|0xf900..=0xfaff|0x20000..=0x3134f);
+        if ideograph && d.word.is_some() {
+            self.flush_word(d, false);
+            d.glue_next = true;
+        }
         let mut t = d.word.take().unwrap_or_else(|| self.close(self.end(), 0, 0, 0));
         self.text_glyph(c, font, cp, &mut t)?;
         t.e = self.end();
         d.word = Some(t);
+        if ideograph {
+            self.flush_word(d, false);
+            d.glue_next = true;
+        }
         Ok(())
     }
 
@@ -1424,7 +1463,8 @@ impl Engine {
 
     fn flush_word(&mut self, d: &mut Doc, forced: bool) {
         if let Some(bx) = d.word.take() {
-            self.words.push(Word { bx, forced });
+            self.words.push(Word { bx, forced, gap: !d.glue_next, hyphen: None });
+            d.glue_next = false;
         } else if forced {
             if let Some(last) = self.words.last_mut() {
                 last.forced = true;
@@ -1467,6 +1507,7 @@ impl Engine {
                         self.pos += 1;
                     }
                     self.flush_word(d, false);
+                    d.glue_next = false;
                     if breaks {
                         return Ok(());
                     }
@@ -1541,13 +1582,7 @@ impl Engine {
                     d.word = Some(t);
                 }
                 _ => {
-                    let tok = self.pos;
                     let (_, cp) = self.read_utf8()?;
-                    if glyph_id(*font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp)).is_none() && composed(cp).is_none() {
-                        self.note(tok);
-                        self.put_char(d, c, *font, b'?' as u32)?;
-                        continue;
-                    }
                     self.put_char(d, c, *font, cp)?;
                 }
             }
@@ -1611,6 +1646,21 @@ impl Engine {
             }
         }
         match name {
+            b"-" => {
+                if d.word.is_some() {
+                    self.flush_word(d, false);
+                    let g = glyph_id(*font, b'-' as u32).or_else(|| glyph_id(0, b'-' as u32)).unwrap();
+                    let metric = self.glyph_metric(g as usize);
+                    let s = self.end();
+                    self.push_glyph(g, 0, 0, c.grp);
+                    let mark = Bx { s, e: self.end(), w: sc(metric.w as i32, c.scale), h: sc(metric.h as i32, c.scale), d: 0 };
+                    if let Some(word) = self.words.last_mut() {
+                        word.hyphen = Some(mark);
+                    }
+                    d.glue_next = true;
+                }
+                return Ok(false);
+            }
             b"\\" => {
                 self.skip_star();
                 self.bracket_length(c)?;
@@ -1742,7 +1792,7 @@ impl Engine {
     fn place_line(&mut self, d: &mut Doc, h: i32, dep: i32) -> i32 {
         if !d.fresh {
             let y = d.base.saturating_add(d.baseline.max(d.dep.saturating_add(h).saturating_add(LINESKIP))).saturating_add(d.skip);
-            if y.saturating_add(dep) <= d.text_h {
+            if y.saturating_add(dep) <= d.text_h - d.note_h - d.bottom_h {
                 d.base = y;
                 d.dep = dep;
                 d.skip = 0;
@@ -1752,7 +1802,7 @@ impl Engine {
         }
         d.fresh = false;
         d.skip = 0;
-        d.base = h.max(TOPSKIP);
+        d.base = h.max(d.topskip);
         d.dep = dep;
         d.base
     }
@@ -1797,6 +1847,8 @@ impl Engine {
     }
 
     fn new_page(&mut self, d: &mut Doc) -> R<()> {
+        self.finish_bottom(d);
+        self.finish_notes(d);
         d.fresh = true;
         d.skip = 0;
         d.base = 0;
@@ -1804,6 +1856,7 @@ impl Engine {
         if d.columns == 2 && d.column == 0 {
             d.column = 1;
             d.left = d.frame_left + d.text_w + d.column_gap;
+            self.place_deferred(d);
             return Ok(());
         }
         self.finish_page(d)?;
@@ -1811,10 +1864,13 @@ impl Engine {
         d.column = 0;
         self.fit_frame(d);
         self.place_held(d);
+        self.place_deferred(d);
         Ok(())
     }
 
     fn finish_page(&mut self, d: &mut Doc) -> R<()> {
+        self.finish_bottom(d);
+        self.finish_notes(d);
         let c = d.ctx;
         let saved = d.word.take();
         let mark = self.end();
@@ -1853,16 +1909,18 @@ impl Engine {
                     break;
                 }
                 natural += word.bx.w;
-                if i + 1 < j {
+                if i + 1 < j && words[i + 1].gap {
                     natural += fit.space;
                     gaps += 1;
                 }
                 let avail = fit.width - if i == 0 { fit.indent } else { 0 };
-                let over = natural - gaps * fit.shrink - avail;
+                let discretionary = if j < n { words[j - 1].hyphen.map_or(0, |b| b.w) } else { 0 };
+                let line_width = natural + discretionary;
+                let over = line_width - gaps * fit.shrink - avail;
                 if over > 0 && i + 1 < j {
                     break;
                 }
-                let slack = (avail - natural) as i64;
+                let slack = (avail - line_width) as i64;
                 let cost = if over > 0 {
                     OVERFULL + over as i64
                 } else if last {
@@ -1872,7 +1930,7 @@ impl Engine {
                 } else {
                     fit.cost(slack, gaps)
                 };
-                let total = costs[i].0.saturating_add(cost);
+                let total = costs[i].0.saturating_add(cost).saturating_add(if discretionary > 0 { 2500 } else { 0 });
                 if total < best.0 {
                     best = (total, i as u32);
                 }
@@ -1882,7 +1940,7 @@ impl Engine {
     }
 
     fn set_lines(&mut self, d: &mut Doc, c: &Ctx, left: i32, width: i32, indent: i32, ragged: bool, center: bool) {
-        let n = self.words.len();
+        let mut n = self.words.len();
         if n == 0 {
             return;
         }
@@ -1890,6 +1948,10 @@ impl Engine {
         let shrink = sc(SHRINK, c.scale);
         let fit = Fit { width, indent, ragged, space, stretch: sc(STRETCH, c.scale), shrink };
         self.all_breaks(&fit);
+        if !ragged && self.line_costs[n].0 > 1_000_000 && self.hyphenate_words() {
+            n = self.words.len();
+            self.all_breaks(&fit);
+        }
         self.line_ends.clear();
         let mut j = n;
         while j > 0 {
@@ -1905,24 +1967,38 @@ impl Engine {
                 h = h.max(w.bx.h);
                 dep = dep.max(w.bx.d);
             }
-            let gaps = (end - start - 1) as i32;
+            let gaps = self.words[start + 1..end].iter().filter(|w| w.gap).count() as i32;
             natural += gaps * space;
+            let hyphen = if end < n { self.words[end - 1].hyphen } else { None };
+            natural += hyphen.map_or(0, |b| b.w);
             let first = if start == 0 { indent } else { 0 };
             let last = end == n || self.words[end - 1].forced;
             let extra = if ragged || last || gaps == 0 { 0 } else { (width - first - natural).max(-gaps * shrink) };
+            if !self.store.notes.is_empty() {
+                let from = self.words[start].bx.s;
+                let to = self.words[end - 1].bx.e;
+                let _ = self.reserve_notes(d, from, to, h + dep);
+            }
             let y = self.place_line(d, h, dep);
             let mut x = left + first;
             if center {
                 x = left + (width - natural) / 2;
             }
-            for (i, at) in (start..end).enumerate() {
+            let mut gap_index = 0;
+            for at in start..end {
                 let w = self.words[at];
                 self.commit(d, w.bx.s, w.bx.e, x, y);
-                x += w.bx.w + space;
-                if gaps > 0 {
-                    let i = i as i32;
-                    x += extra * (i + 1) / gaps - extra * i / gaps;
+                x += w.bx.w;
+                if at + 1 < end && self.words[at + 1].gap {
+                    x += space;
+                    if gaps > 0 {
+                        x += extra * (gap_index + 1) / gaps - extra * gap_index / gaps;
+                    }
+                    gap_index += 1;
                 }
+            }
+            if let Some(mark) = hyphen {
+                self.commit(d, mark.s, mark.e, x, y);
             }
             if start == 0 {
                 self.place_label(d, left, y);
@@ -1930,5 +2006,43 @@ impl Engine {
             start = end;
         }
         self.words.clear();
+    }
+}
+
+impl Engine {
+    fn input_file(&mut self, d: &mut Doc, left: i32, narrow: i32, include: bool) -> R<()> {
+        self.skip_ws();
+        let name = if self.peek() == b'{' {
+            self.group_text()?
+        } else {
+            let start = self.pos;
+            while !self.at_end() && !self.peek().is_ascii_whitespace() {
+                self.pos += 1;
+            }
+            self.slice(start, self.pos)
+        };
+        let Some(index) = self.file_index(name, &[b".tex"]) else {
+            self.note(self.pos);
+            return Ok(());
+        };
+        let key = self.assets.files[index].0.clone();
+        if self.assets.active.contains(&key) {
+            return self.fail(E_DEPTH);
+        }
+        let content = self.assets.files[index].1.clone();
+        let content = self.source_copy(&content);
+        if include && !d.fresh {
+            self.new_page(d)?;
+        }
+        self.assets.active.push(key);
+        let src = self.push_src(content.as_ptr(), content.len());
+        let done = self.blocks(d, left, narrow, b"");
+        self.pop_src(src);
+        self.assets.active.pop();
+        done?;
+        if include && !d.fresh {
+            self.new_page(d)?;
+        }
+        Ok(())
     }
 }

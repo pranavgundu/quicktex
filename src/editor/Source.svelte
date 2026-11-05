@@ -287,6 +287,13 @@
   })
 
   $effect(() => {
+    const text = value
+    if (view && view.state.doc.toString() !== text) {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } })
+    }
+  })
+
+  $effect(() => {
     view?.dispatch({ effects: setError.of(errorAt) })
   })
 

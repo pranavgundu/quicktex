@@ -478,10 +478,10 @@ fn a_bibliography_may_omit_its_width() {
 }
 
 #[test]
-fn pictures_we_cannot_draw_are_skipped_with_a_warning() {
+fn picture_put_draws_its_text() {
     let d = good(&article("\\begin{picture}(1,1)\\put(0,0){x}\\end{picture}\n\nafter"));
-    assert_eq!(d.e.warned.len(), 1);
-    assert_eq!(d.glyphs(), 5);
+    assert_eq!(d.e.warned.len(), 0);
+    assert_eq!(d.glyphs(), 6);
 }
 
 #[test]

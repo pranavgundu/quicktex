@@ -8,7 +8,7 @@ const tools = Object.keys(data.versions)
 const others = tools.filter((tool) => tool !== 'quicktex')
 const names = Object.keys(data.results)
 
-const time = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms < 10 ? ms.toFixed(1) : ms.toFixed(0)} ms`)
+const time = (ms: number) => (ms < 1 ? `${(ms * 1000).toFixed(0)} µs` : ms >= 1000 ? `${(ms / 1000).toFixed(1)} s` : `${ms < 10 ? ms.toFixed(1) : ms.toFixed(0)} ms`)
 const times = (value: number) => `${value < 10 ? value.toFixed(1) : value.toFixed(0)}x`
 
 function cell(name: string, tool: string) {
@@ -78,7 +78,7 @@ ${memory.join('\n')}
 
 ## PDF size
 
-quicktex loses here. It draws every letter as a shape, while TeX embeds each font once.
+quicktex embeds reusable Type 3 glyph fonts with Unicode maps and compresses page streams. TeX uses different font formats; compare the resulting sizes below.
 
 ${row(['Document', ...tools])}
 ${rule(tools.length + 1)}

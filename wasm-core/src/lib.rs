@@ -5,89 +5,22 @@ extern crate alloc;
 #[rustfmt::skip]
 mod data;
 mod emit;
+mod glyph_data;
 mod packages;
 mod tex;
 
 #[cfg(not(test))]
-use core::alloc::{GlobalAlloc, Layout};
-#[cfg(not(test))]
 use core::arch::wasm32;
-#[cfg(not(test))]
-use core::cell::UnsafeCell;
 #[cfg(not(test))]
 use core::mem::MaybeUninit;
 #[cfg(not(test))]
 use tex::Engine;
 
-#[cfg(not(test))]
-struct Bump {
-    top: UnsafeCell<usize>,
-    end: UnsafeCell<usize>,
-}
-
-#[cfg(not(test))]
-unsafe impl Sync for Bump {}
-
-#[cfg(not(test))]
-unsafe impl GlobalAlloc for Bump {
-    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
-        unsafe {
-            let top = self.top.get();
-            let end = self.end.get();
-            if *end == 0 {
-                unsafe extern "C" {
-                    static __heap_base: u8;
-                }
-                *top = &raw const __heap_base as usize;
-                *end = wasm32::memory_size(0) << 16;
-            }
-            let start = (*top + l.align() - 1) & !(l.align() - 1);
-            let next = start + l.size();
-            if next > *end {
-                let need = (next - *end + 0xffff) >> 16;
-                let pages = need.max(wasm32::memory_size(0));
-                if wasm32::memory_grow(0, pages) == usize::MAX && wasm32::memory_grow(0, need) == usize::MAX {
-                    return core::ptr::null_mut();
-                }
-                *end = wasm32::memory_size(0) << 16;
-            }
-            *top = next;
-            start as *mut u8
-        }
-    }
-
-    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
-        unsafe {
-            let top = self.top.get();
-            if p as usize + l.size() == *top {
-                *top = p as usize;
-            }
-        }
-    }
-
-    unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
-        unsafe {
-            let top = self.top.get();
-            if p as usize + l.size() == *top {
-                let next = p as usize + n;
-                if next <= *self.end.get() {
-                    *top = next;
-                    return p;
-                }
-            }
-            let q = self.alloc(Layout::from_size_align_unchecked(n, l.align()));
-            if !q.is_null() {
-                core::ptr::copy_nonoverlapping(p, q, l.size().min(n));
-                self.dealloc(p, l);
-            }
-            q
-        }
-    }
-}
-
+// Document assets and paragraph wrapping allocate temporary buffers with
+// overlapping lifetimes. Reclaim them even when they are freed out of order.
 #[cfg(not(test))]
 #[global_allocator]
-static ALLOC: Bump = Bump { top: UnsafeCell::new(0), end: UnsafeCell::new(0) };
+static ALLOC: dlmalloc::GlobalDlmalloc = dlmalloc::GlobalDlmalloc;
 
 #[cfg(not(test))]
 #[panic_handler]
@@ -170,4 +103,21 @@ extern "C" fn qt_output() -> *const u8 {
 #[unsafe(no_mangle)]
 extern "C" fn qt_error_pos() -> usize {
     engine().error_pos()
+}
+
+#[cfg(not(test))]
+#[unsafe(no_mangle)]
+extern "C" fn qt_glyph(len: usize) -> i32 {
+    engine().register_glyph(len)
+}
+
+#[cfg(not(test))]
+#[unsafe(no_mangle)]
+extern "C" fn qt_files_clear() {
+    engine().clear_files()
+}
+#[cfg(not(test))]
+#[unsafe(no_mangle)]
+extern "C" fn qt_file(name: usize, len: usize) -> i32 {
+    engine().register_file(name, len)
 }

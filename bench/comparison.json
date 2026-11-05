@@ -1,0 +1,202 @@
+{
+  "description": "Initial implementation pass: recorded benchmark baseline versus the final uncommitted build. Positive changes mean larger/slower; regressions remain.",
+  "baseline_version": "9f0ce88",
+  "current_version": "b7062eb-dirty",
+  "date": "2026-11-05",
+  "benchmark_seconds": 5,
+  "documents": {
+    "note": {
+      "before": {
+        "cold_ms": 16.76375,
+        "warm_ms": 0.0689159999601543,
+        "pdf_bytes": 69066,
+        "peak_mib": 44.921875,
+        "pages": 1
+      },
+      "after": {
+        "cold_ms": 19.4082705,
+        "warm_ms": 0.044125000000349246,
+        "pdf_bytes": 41435,
+        "peak_mib": 47.078125,
+        "pages": 1
+      },
+      "change_percent": {
+        "cold_ms": 15.78,
+        "warm_ms": -35.97,
+        "pdf_bytes": -40.01,
+        "peak_mib": 4.8,
+        "pages": 0
+      }
+    },
+    "paper": {
+      "before": {
+        "cold_ms": 23.465958500000003,
+        "warm_ms": 1.7595000000437722,
+        "pdf_bytes": 746022,
+        "peak_mib": 55.6796875,
+        "pages": 8
+      },
+      "after": {
+        "cold_ms": 26.901125,
+        "warm_ms": 1.3706249999995634,
+        "pdf_bytes": 224851,
+        "peak_mib": 59.515625,
+        "pages": 9
+      },
+      "change_percent": {
+        "cold_ms": 14.64,
+        "warm_ms": -22.1,
+        "pdf_bytes": -69.86,
+        "peak_mib": 6.89,
+        "pages": 12.5
+      }
+    },
+    "formulas": {
+      "before": {
+        "cold_ms": 20.9738125,
+        "warm_ms": 0.8207089999923483,
+        "pdf_bytes": 406830,
+        "peak_mib": 49.890625,
+        "pages": 31
+      },
+      "after": {
+        "cold_ms": 25.021083,
+        "warm_ms": 0.6923329999990528,
+        "pdf_bytes": 319954,
+        "peak_mib": 54.1171875,
+        "pages": 31
+      },
+      "change_percent": {
+        "cold_ms": 19.3,
+        "warm_ms": -15.64,
+        "pdf_bytes": -21.35,
+        "peak_mib": 8.47,
+        "pages": 0
+      }
+    },
+    "book": {
+      "before": {
+        "cold_ms": 80.1355625,
+        "warm_ms": 49.32783299998846,
+        "pdf_bytes": 11985056,
+        "peak_mib": 153.40625,
+        "pages": 106
+      },
+      "after": {
+        "cold_ms": 76.3654795,
+        "warm_ms": 35.68129100000078,
+        "pdf_bytes": 2073313,
+        "peak_mib": 121.03125,
+        "pages": 106
+      },
+      "change_percent": {
+        "cold_ms": -4.7,
+        "warm_ms": -27.66,
+        "pdf_bytes": -82.7,
+        "peak_mib": -21.1,
+        "pages": 0
+      }
+    },
+    "drawing": {
+      "before": {
+        "cold_ms": 18.669103999999997,
+        "warm_ms": 0.32504200004041195,
+        "pdf_bytes": 72700,
+        "peak_mib": 43.7734375,
+        "pages": 1
+      },
+      "after": {
+        "cold_ms": 19.404750000000003,
+        "warm_ms": 0.30208399999901303,
+        "pdf_bytes": 73358,
+        "peak_mib": 47.375,
+        "pages": 1
+      },
+      "change_percent": {
+        "cold_ms": 3.94,
+        "warm_ms": -7.06,
+        "pdf_bytes": 0.91,
+        "peak_mib": 8.23,
+        "pages": 0
+      }
+    },
+    "plots": {
+      "before": {
+        "cold_ms": 18.843125,
+        "warm_ms": 0.1948329999577254,
+        "pdf_bytes": 45137,
+        "peak_mib": 47,
+        "pages": 2
+      },
+      "after": {
+        "cold_ms": 20.639896,
+        "warm_ms": 0.18633300000510644,
+        "pdf_bytes": 44822,
+        "peak_mib": 49.703125,
+        "pages": 2
+      },
+      "change_percent": {
+        "cold_ms": 9.54,
+        "warm_ms": -4.36,
+        "pdf_bytes": -0.7,
+        "peak_mib": 5.75,
+        "pages": 0
+      }
+    },
+    "tree": {
+      "before": {
+        "cold_ms": 47.501729000000005,
+        "warm_ms": 12.371167000004789,
+        "pdf_bytes": 235414,
+        "peak_mib": 73.4765625,
+        "pages": 1
+      },
+      "after": {
+        "cold_ms": 46.4899585,
+        "warm_ms": 14.41716599999927,
+        "pdf_bytes": 48198,
+        "peak_mib": 75.421875,
+        "pages": 1
+      },
+      "change_percent": {
+        "cold_ms": -2.13,
+        "warm_ms": 16.54,
+        "pdf_bytes": -79.53,
+        "peak_mib": 2.65,
+        "pages": 0
+      }
+    }
+  },
+  "runtime": {
+    "before_core": {
+      "bytes": 1217004,
+      "gzip_bytes": 465769,
+      "sha256": "2a7fc256c27c7b0b5567a3f392307e80076fe25dffdc226852ac1293cdf65e2a"
+    },
+    "after_core": {
+      "bytes": 1074103,
+      "gzip_bytes": 576777,
+      "sha256": "f9453d5ca7e7843aab4ae4ae9c956d5e3389c11e0cdf8a254f13de1fd299b833"
+    },
+    "optional_font_parser": {
+      "bytes": 76520,
+      "gzip_bytes": 38364,
+      "sha256": "b2b03bf51d03a65f621476b975e1a2f93b9a3aaa4755845af0f63b5b1f9658bc"
+    },
+    "gzip_budget_before": 500000,
+    "gzip_budget_after": 600000
+  },
+  "validation": {
+    "native_tests": 537,
+    "web_tests": 358,
+    "final_focused_checks": 27,
+    "document_compiler_cases": 35,
+    "formula_engines": 4
+  },
+  "remaining": [
+    "Advanced drawing commands/styles and chemical rings",
+    "TeX-exact float and line-breaking rules, and long-footnote splitting",
+    "Cold-process time and compressed core size regressions",
+    "Paper benchmark still has nine pages versus eight previously"
+  ]
+}

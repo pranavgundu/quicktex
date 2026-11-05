@@ -219,7 +219,9 @@ describe('the wasm binary', () => {
 
   test('stays under the size budget', () => {
     expect(bytes.length).toBeLessThan(1_300_000)
-    expect(Bun.gzipSync(bytes).length).toBeLessThan(500_000)
+    // Document hyphenation, raster decoding, PDF fonts and compression add code.
+    // Keep the original raw-size cap and budget the expanded core explicitly.
+    expect(Bun.gzipSync(bytes).length).toBeLessThan(600_000)
   })
 })
 

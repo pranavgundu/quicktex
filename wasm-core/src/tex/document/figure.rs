@@ -2001,6 +2001,7 @@ impl Engine {
                     self.depth -= 1;
                     return Ok(true);
                 }
+                _ if name.starts_with(b"tkz") => self.tkz_statement(d, pic, look, name)?,
                 b"foreach" => self.scene_foreach(d, pic, *look)?,
                 b"pgfmathsetmacro" | b"pgfmathtruncatemacro" | b"pgfmathparse" => self.pgf_math(pic, name)?,
                 b"usetikzlibrary" | b"pgfplotsset" | b"tikzstyle" => self.scene_setting(pic, name, *look)?,
@@ -2098,3 +2099,118 @@ impl Engine {
 
 #[cfg(test)]
 mod tests;
+
+impl Engine {
+    fn tkz_statement(&mut self, d: &mut Doc, pic: &mut Pic, look: &Look, name: &[u8]) -> R<()> {
+        let start = self.pos;
+        let options = self.square_options()?;
+        let mut generated = alloc::string::String::new();
+        let as_text = |t: &[u8]| -> alloc::string::String { core::str::from_utf8(t).unwrap_or("").into() };
+        match name {
+            b"tkzDefPoint" => {
+                let p = self.nested(b'(', b')')?;
+                let label = self.group_text()?;
+                generated = alloc::format!("\\coordinate ({}) at ({});", as_text(label), as_text(p));
+            }
+            b"tkzDefPoints" => {
+                let points = self.group_text()?;
+                for point in points.split(|c| *c == b',' || c.is_ascii_whitespace()).filter(|p| !p.is_empty()) {
+                    let fields: Vec<_> = point.split(|c| *c == b'/').collect();
+                    if fields.len() != 3 {
+                        self.note(start);
+                        continue;
+                    }
+                    generated.push_str(&alloc::format!(
+                        "\\coordinate ({}) at ({},{});",
+                        as_text(fields[2]),
+                        as_text(fields[0]),
+                        as_text(fields[1])
+                    ));
+                }
+            }
+            b"tkzDrawSegment" | b"tkzDrawSegments" | b"tkzDrawPolygon" => {
+                let points = self.nested(b'(', b')')?;
+                let style = as_text(options);
+                if name == b"tkzDrawSegments" {
+                    for pair in points.split(|c| c.is_ascii_whitespace()).filter(|p| !p.is_empty()) {
+                        let fields: Vec<_> = pair.split(|c| *c == b',').collect();
+                        if fields.len() == 2 {
+                            generated.push_str(&alloc::format!("\\draw[{style}] ({}) -- ({});", as_text(fields[0]), as_text(fields[1])));
+                        } else {
+                            self.note(start);
+                        }
+                    }
+                } else {
+                    generated.push_str(&alloc::format!("\\draw[{style}] "));
+                    for (i, p) in points.split(|c| *c == b',').enumerate() {
+                        if i > 0 {
+                            generated.push_str(" -- ");
+                        }
+                        generated.push_str(&alloc::format!("({})", as_text(trim(p))));
+                    }
+                    if name == b"tkzDrawPolygon" {
+                        generated.push_str(" -- cycle");
+                    }
+                    generated.push(';');
+                }
+            }
+            b"tkzDrawPoint" | b"tkzDrawPoints" | b"tkzLabelPoints" => {
+                let points = self.nested(b'(', b')')?;
+                for label in points.split(|c| *c == b',') {
+                    if name == b"tkzLabelPoints" {
+                        generated.push_str(&alloc::format!(
+                            "\\node[{}] at ({}) {{{}}};",
+                            if options.is_empty() { "above".into() } else { as_text(options) },
+                            as_text(label),
+                            as_text(label)
+                        ));
+                    } else {
+                        generated.push_str(&alloc::format!("\\fill ({}) circle[radius=1.5pt];", as_text(label)));
+                    }
+                }
+            }
+            b"tkzLabelPoint" => {
+                let p = self.nested(b'(', b')')?;
+                let label = self.group_text()?;
+                generated = alloc::format!(
+                    "\\node[{}] at ({}) {{{}}};",
+                    if options.is_empty() { "above".into() } else { as_text(options) },
+                    as_text(p),
+                    as_text(label)
+                );
+            }
+            b"tkzDrawCircle" | b"tkzDefMidPoint" => {
+                let points = self.nested(b'(', b')')?;
+                let fields: Vec<_> = points.split(|c| *c == b',').collect();
+                if fields.len() != 2 {
+                    return self.fail(E_ARG);
+                }
+                let a = self.resolve(pic, look, trim(fields[0]))?;
+                let b = self.resolve(pic, look, trim(fields[1]))?;
+                if name == b"tkzDefMidPoint" {
+                    pic.coords.push(Named { name: b"_tkz_result", x: (a.0 + b.0) / 2.0, y: (a.1 + b.1) / 2.0, extent: Extent::default() });
+                    return Ok(());
+                }
+                let r = sqrt((a.0 - b.0) * (a.0 - b.0) + (a.1 - b.1) * (a.1 - b.1));
+                generated = alloc::format!("\\draw[{}] ({}) circle[radius={}pt];", as_text(options), as_text(fields[0]), r);
+            }
+            b"tkzGetPoint" => {
+                let label = self.group_text()?;
+                let label = self.lasting(label);
+                let p = self.resolve(pic, look, b"_tkz_result")?;
+                pic.coords.push(Named { name: label, x: p.0, y: p.1, extent: Extent::default() });
+                return Ok(());
+            }
+            _ => {
+                self.note(start);
+                self.skip_arguments();
+                return Ok(());
+            }
+        }
+        let kept = self.source_copy(generated.as_bytes());
+        let src = self.push_src(kept.as_ptr(), kept.len());
+        let done = self.scene(d, pic, *look, b"");
+        self.pop_src(src);
+        done
+    }
+}

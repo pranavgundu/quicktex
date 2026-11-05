@@ -1,6 +1,6 @@
 # quicktex
 
-A LaTeX math renderer for the web. The parser, layout engine and SVG writer are Rust compiled to a single WebAssembly file, with no runtime dependencies and no fonts to load.
+A LaTeX math renderer for the web. The parser, layout engine and SVG writer are Rust compiled to a single WebAssembly file, with no fonts to load for math. Document text can load bundled Unicode fallback fonts when needed.
 
 ## Run it
 
@@ -60,17 +60,32 @@ Drawings use a subset of TikZ and pgfplots: lines, curves, rectangles, circles, 
 
 Unknown commands, options and packages never stop a document. They are skipped, and the status bar names the first one with a count of the rest. Only real structural mistakes stop it: unbalanced braces, unclosed math, and mismatched `\begin` and `\end`.
 
-Not handled yet:
+Documents now support:
 
-- `\includegraphics` draws a placeholder box, because a page has no files to read
-- `\input` and `\include` are skipped, because there is one source file
-- footnotes print under their paragraph, not at the bottom of the page
-- table cells stay on one line, so long `p{}` and `X` cells run past the column
-- there is no font for Chinese, Japanese, Korean, Cyrillic or Greek text, so those letters show as `?`
-- `picture`, `pspicture`, `tkz-euclide`, `forest` and `chemfig` drawings are skipped
-- there is no hyphenation, so line breaks differ from `pdflatex`
-- floats stay where they are written, except wide `figure*` floats, which move to the top of the next page
-- text in the PDF is drawn as shapes, so it cannot be selected or searched
+- Virtual project files for `\input`, `\include`, and PNG/JPEG `\includegraphics`, with aspect-ratio sizing and PNG transparency. Use **Add files** in the editor; importing `main.tex` or `document.tex` also opens it as the main source. Imported files live in the current tab and must be added again after a reload.
+- Footnotes at the bottom of their column, with reserved space and a separator rule.
+- Word wrapping in `p{}`, `m{}`, `b{}`, and `X` table columns, including shrinking `X` columns to the requested table width.
+- Chinese, Japanese, Korean, Cyrillic, and Greek fallback outlines. `loadFontsFor(source)` loads the optional Noto assets; the editor and CLI do this automatically. Only glyphs used in the document enter its PDF. CJK uses Noto Serif CJK SC's shared ideograph forms; language-specific shaping and bold/italic fallback faces are not implemented.
+- American English pattern hyphenation, `\-`, and `\hyphenation{...}` exceptions. This improves line breaking but does not reproduce TeX's full paragraph or language machinery.
+- `[h]`/`[H]` placement, deferred `[t]` floats, `[b]` floats at the bottom, and wide floats on the next page. Float queues use simpler rules than TeX; float-page fractions and all placement combinations are not implemented.
+- Selectable, searchable PDF text through embedded Type 3 glyph fonts and Unicode maps, plus compressed streams. Math extraction follows glyph order rather than semantic equation structure.
+
+Drawing compatibility is a subset, with warnings for unsupported commands: `picture` supports `\put`, lines, vectors, circles, box text, and quadratic Béziers; `pspicture` supports polylines, polygons, rectangles, circles, and text; `forest` supports basic bracketed trees; `chemfig` supports linear molecules and branches; and TikZ accepts common `tkz` point definitions, segments, polygons, circles, midpoint construction, and labels. Package-specific styles, chemical rings, advanced constructions, and layout algorithms remain incomplete. Existing TikZ/pgfplots support is unchanged.
+
+```js
+import { init, loadFontsFor, renderDocument } from './wasm-core/js/quicktex.js'
+
+await init()
+await loadFontsFor(source + chapterSource) // optional for Latin documents
+renderDocument(source, {
+  files: {
+    'chapter.tex': chapterSource,
+    'plot.png': pngBytes, // Uint8Array
+  },
+})
+```
+
+`setFiles(files)` replaces the virtual project filesystem for subsequent compiles. Missing or unsupported image files produce warnings and a placeholder. Supported raster formats are 8-bit, non-interlaced PNG (gray, RGB, palette, and alpha) and 8-bit RGB JPEG. Other formats, including PDF figures, are not implemented. `await registerFont(bytes)` adds an OpenType fallback font. The optional bundled fonts are loaded lazily from the same origin; no external font service is used.
 
 ### Writing
 
@@ -114,7 +129,9 @@ Your own commands work too: `\newcommand`, `\renewcommand`, `\providecommand`, `
 | `wasm-core/src/tex/pdf.rs` | PDF output |
 | `wasm-core/src/emit.rs` | SVG output |
 | `wasm-core/src/data.rs`, `*.bin` | Glyph outlines and metrics |
-| `wasm-core/js` | JavaScript API and the built wasm |
+| `wasm-core/js` | JavaScript API, built wasm, and optional Unicode font assets |
+| `wasm-fonts` | Optional OpenType outline parser, loaded only for Unicode fallback |
+| `wasm-core/assets/build.py` | Regenerates the English trie and independent compressed glyph blocks |
 | `src` | Formula page |
 | `src/editor`, `editor` | Full editor page |
 | `src/editor/engine.ts`, `src/editor/engine.worker.ts` | Compiling off the main thread |

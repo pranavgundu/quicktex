@@ -15,3 +15,7 @@ strip = true
 
 [profile.test]
 opt-level = 1
+
+[dependencies]
+miniz_oxide = { version = "0.9.1", default-features = false, features = ["with-alloc"] }
+dlmalloc = { version = "0.2.14", features = ["global"] }

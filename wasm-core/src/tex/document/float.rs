@@ -73,7 +73,7 @@ impl Engine {
             if first {
                 out.s = b.s;
                 first = false;
-            } else {
+            } else if self.words[i].gap {
                 out.w += space;
             }
             self.shift(b.s, b.e, out.w, 0);
@@ -86,7 +86,7 @@ impl Engine {
         out
     }
 
-    fn line_until(&mut self, d: &mut Doc, c: &Ctx, stop: usize) -> R<Bx> {
+    fn line_until(&mut self, d: &mut Doc, c: &Ctx, stop: usize) -> R<(Bx, Vec<Word>)> {
         let limit = self.len;
         let at = unsafe { (self.p as *mut u8).add(stop) };
         let held = unsafe { *at };
@@ -102,7 +102,9 @@ impl Engine {
             return self.fail(E_MISPLACED);
         }
         self.pos = stop;
-        Ok(self.line_box(d, c))
+        self.flush_word(d, false);
+        let words = self.words.clone();
+        Ok((self.line_box(d, c), words))
     }
 
     fn table_rule(&mut self) -> u8 {
@@ -133,19 +135,21 @@ impl Engine {
         }
     }
 
-    fn table_spec(&mut self) -> R<([u8; MAX_COLUMNS], usize, u64, u64, bool)> {
+    fn table_spec(&mut self, width: i32) -> R<([u8; MAX_COLUMNS], usize, u64, u64, bool, [i32; MAX_COLUMNS])> {
         let spec = self.loose_argument();
         let mut aligns = [0u8; MAX_COLUMNS];
         let mut count = 0;
         let mut lines = 0u64;
         let mut flexible = 0u64;
-        scan_spec(spec, &mut aligns, &mut count, &mut lines, &mut flexible, 0);
+        let mut sizes = [b"" as &[u8]; MAX_COLUMNS];
+        scan_spec(spec, &mut aligns, &mut count, &mut lines, &mut flexible, &mut sizes, 0);
+        let widths = core::array::from_fn(|i| self.table_width(sizes[i], width));
         if count == 0 {
             aligns[0] = b'l';
             count = 1;
         }
         let fill = spec.windows(5).any(|w| w == b"\\fill");
-        Ok((aligns, count, lines, flexible, fill))
+        Ok((aligns, count, lines, flexible, fill, widths))
     }
 
     pub(super) fn table_width(&mut self, text: &[u8], width: i32) -> i32 {
@@ -164,7 +168,7 @@ impl Engine {
         if self.peek() == b'[' {
             self.bracketed()?;
         }
-        let (aligns, count, lines, flexible, fill) = self.table_spec()?;
+        let (aligns, count, lines, flexible, fill, fixed) = self.table_spec(width)?;
         let target = core::mem::take(&mut d.table_width);
         let c = d.ctx;
         let mut cells = core::mem::take(&mut self.store.cells);
@@ -172,8 +176,8 @@ impl Engine {
         cells.clear();
         rows.clear();
         let done = self.table_rows(d, &c, count, &mut cells, &mut rows, name);
-        let stretch = (target, flexible, fill);
-        let placed = done.and_then(|()| self.table_place(d, &c, left, width, &aligns, count, lines, stretch, &cells, &rows));
+        let stretch = (target, flexible, fill, fixed);
+        let placed = done.and_then(|()| self.table_place(d, &c, left, width, &aligns, count, lines, stretch, &mut cells, &mut rows));
         self.store.cells = cells;
         self.store.rows = rows;
         placed
@@ -184,7 +188,7 @@ impl Engine {
         d: &mut Doc,
         c: &Ctx,
         count: usize,
-        cells: &mut Vec<(Bx, u16, u16)>,
+        cells: &mut Vec<(Bx, u16, u16, Vec<Word>)>,
         rows: &mut Vec<TableRow>,
         name: &[u8],
     ) -> R<()> {
@@ -213,11 +217,11 @@ impl Engine {
                     self.pos = self.len;
                     return self.fail(E_END);
                 }
-                let b = self.line_until(d, c, stop)?;
+                let (b, words) = self.line_until(d, c, stop)?;
                 if column < count {
                     h = h.max(b.h);
                     dep = dep.max(b.d);
-                    cells.push((b, row, column as u16));
+                    cells.push((b, row, column as u16, words));
                 }
                 column += 1;
                 if self.peek() == b'&' {
@@ -244,26 +248,82 @@ impl Engine {
         aligns: &[u8; MAX_COLUMNS],
         count: usize,
         lines: u64,
-        stretch: (i32, u64, bool),
-        cells: &[(Bx, u16, u16)],
-        rows: &[TableRow],
+        stretch: (i32, u64, bool, [i32; MAX_COLUMNS]),
+        cells: &mut [(Bx, u16, u16, Vec<Word>)],
+        rows: &mut [TableRow],
     ) -> R<()> {
         let mut widths = [0i32; MAX_COLUMNS];
-        for (b, _, column) in cells {
+        for (b, _, column, _) in cells.iter() {
             let w = &mut widths[*column as usize];
             *w = (*w).max(b.w);
         }
         let gap = d.table_gap;
-        let (target, flexible, fill) = stretch;
+        let (target, flexible, fill, fixed) = stretch;
+        for i in 0..count {
+            if fixed[i] > 0 {
+                widths[i] = fixed[i];
+            }
+        }
         let natural = widths[..count].iter().sum::<i32>() + 2 * gap * count as i32;
         let extra = (target - natural).max(0);
         let flex_count = (flexible & ((1u64 << count.min(63)) - 1)).count_ones() as i32;
+        if target > 0 && flex_count > 0 {
+            let occupied: i32 = (0..count).filter(|i| flexible & (1 << i) == 0).map(|i| widths[i]).sum();
+            let share = ((target - occupied - 2 * gap * count as i32) / flex_count).max(1);
+            for i in 0..count {
+                if flexible & (1 << i) != 0 {
+                    widths[i] = share;
+                }
+            }
+        }
+        // Reflow paragraph columns after measuring the natural columns. Positions
+        // were flattened by line_box; undo each word's original horizontal offset.
+        for (b, row, column, words) in cells.iter_mut() {
+            let col = *column as usize;
+            if fixed[col] <= 0 && (target <= 0 || flexible & (1 << col) == 0) {
+                continue;
+            }
+            let mut old_x = 0;
+            let mut x = 0;
+            let mut y = 0;
+            let mut line_h = 0;
+            let mut line_d = 0;
+            let mut first_h = 0;
+            let space = sc(SPACE, c.scale);
+            let mut force = false;
+            for (index, word) in words.iter().enumerate() {
+                let w = word.bx;
+                let gap_before = if index > 0 && word.gap { space } else { 0 };
+                old_x += gap_before;
+                if x > 0 && (force || x + gap_before + w.w > widths[col]) {
+                    if y == 0 {
+                        first_h = line_h;
+                    }
+                    y += d.baseline.max(line_d + w.h + LINESKIP);
+                    x = 0;
+                    line_h = 0;
+                    line_d = 0;
+                } else {
+                    x += gap_before;
+                }
+                self.shift(w.s, w.e, x - old_x, y);
+                x += w.w;
+                old_x += w.w;
+                line_h = line_h.max(w.h);
+                line_d = line_d.max(w.d);
+                force = word.forced;
+            }
+            b.w = widths[col];
+            if y > 0 {
+                b.h = first_h;
+                b.d = y + line_d;
+            }
+            rows[*row as usize].h = rows[*row as usize].h.max(b.h);
+            rows[*row as usize].d = rows[*row as usize].d.max(b.d);
+        }
         let mut starts = [0i32; MAX_COLUMNS + 1];
         let mut spread = 0;
         for i in 0..count {
-            if flex_count > 0 && i < 63 && flexible & (1 << i) != 0 {
-                widths[i] += extra / flex_count;
-            }
             if fill && flex_count == 0 && count > 1 && i + 1 < count {
                 spread = extra * (i as i32 + 1) / (count as i32 - 1);
             }
@@ -295,8 +355,9 @@ impl Engine {
                 first_base = Some(base);
             }
             while at < cells.len() && cells[at].1 as usize == index {
-                let (b, _, column) = cells[at];
-                let i = column as usize;
+                let (b, _, column, _) = &cells[at];
+                let b = *b;
+                let i = *column as usize;
                 let room = widths[i] - b.w;
                 let x = starts[i]
                     + gap
@@ -403,17 +464,50 @@ impl Engine {
             used += held.h + self.pt_units(WIDE_FLOAT_GAP);
         }
         self.store.held.clear();
-        self.store.held_items.clear();
-        self.store.held_art.clear();
+        if self.store.deferred.is_empty() && self.store.bottom.is_empty() {
+            self.store.held_items.clear();
+            self.store.held_art.clear();
+        }
         d.top = d.frame_top + used;
         d.text_h = d.frame_h - used;
     }
 
+    pub(super) fn finish_bottom(&mut self, d: &mut Doc) {
+        let mut y = d.top + d.text_h - d.note_h - d.bottom_h;
+        for i in 0..self.store.bottom.len() {
+            let held = self.store.bottom[i];
+            y += d.float_gap;
+            self.release(held, d.left, y);
+            y += held.h;
+        }
+        self.store.bottom.clear();
+        d.bottom_h = 0;
+    }
+
+    pub(super) fn place_deferred(&mut self, d: &mut Doc) {
+        let mut used = 0;
+        let mut count = 0;
+        for i in 0..self.store.deferred.len() {
+            let held = self.store.deferred[i];
+            if count > 0 && used + held.h > d.text_h {
+                break;
+            }
+            self.release(held, d.left, d.top + used);
+            used += held.h + d.float_gap;
+            count += 1;
+        }
+        self.store.deferred.drain(..count);
+        d.top += used;
+        d.text_h -= used;
+        if self.store.deferred.is_empty() && self.store.held.is_empty() && self.store.bottom.is_empty() {
+            self.store.held_items.clear();
+            self.store.held_art.clear();
+        }
+    }
+
     pub(super) fn float_block(&mut self, d: &mut Doc, left: i32, narrow: i32, name: &'static [u8]) -> R<()> {
         self.skip_ws();
-        if self.peek() == b'[' {
-            self.bracketed()?;
-        }
+        let placement = if self.peek() == b'[' { self.bracketed()? } else { b"htbp" };
         let wide = name.ends_with(b"*") && d.columns == 2;
         let width = if wide { d.frame_w } else { d.text_w - narrow };
         let items = self.doc.items.len();
@@ -424,6 +518,8 @@ impl Engine {
         f.text_w = width;
         f.text_h = WIDE;
         f.base = 0;
+        f.note_h = 0;
+        f.bottom_h = 0;
         f.dep = 0;
         f.skip = 0;
         f.fresh = true;
@@ -451,9 +547,22 @@ impl Engine {
             return Ok(());
         }
         let gap = d.float_gap;
+        let here = placement.contains(&b'h') || placement.contains(&b'H');
+        let fits = d.fresh || d.base + d.dep + d.skip + gap + h <= d.text_h - d.note_h - d.bottom_h;
+        if !here && placement.contains(&b'b') && !placement.contains(&b't') && fits {
+            let held = self.stash(items, art, h);
+            self.store.bottom.push(held);
+            d.bottom_h += h + gap;
+            return Ok(());
+        }
+        if !placement.contains(&b'H') && ((!here && !d.fresh) || (!fits && placement.contains(&b't')) || !self.store.deferred.is_empty()) {
+            let held = self.stash(items, art, h);
+            self.store.deferred.push(held);
+            return Ok(());
+        }
         let (mut items, mut art) = (items, art);
         let mut y = if d.fresh { 0 } else { d.base + d.dep + d.skip + gap };
-        if !d.fresh && y + h > d.text_h {
+        if !d.fresh && y + h > d.text_h - d.note_h - d.bottom_h {
             let mut tail_items = core::mem::take(&mut self.store.tail_items);
             let mut tail_art = core::mem::take(&mut self.store.tail_art);
             tail_items.clear();
@@ -509,7 +618,15 @@ fn group_end(spec: &[u8], at: usize) -> usize {
     spec.len().saturating_sub(1)
 }
 
-fn scan_spec(spec: &[u8], aligns: &mut [u8; MAX_COLUMNS], count: &mut usize, lines: &mut u64, flexible: &mut u64, depth: u32) {
+fn scan_spec(
+    spec: &'static [u8],
+    aligns: &mut [u8; MAX_COLUMNS],
+    count: &mut usize,
+    lines: &mut u64,
+    flexible: &mut u64,
+    sizes: &mut [&'static [u8]; MAX_COLUMNS],
+    depth: u32,
+) {
     let mut i = 0;
     while i < spec.len() {
         let ch = spec[i];
@@ -524,6 +641,9 @@ fn scan_spec(spec: &[u8], aligns: &mut [u8; MAX_COLUMNS], count: &mut usize, lin
                         b'r' | b'R' => b'r',
                         _ => b'l',
                     };
+                    if matches!(ch, b'p' | b'm' | b'b') && spec.get(i + 1) == Some(&b'{') {
+                        sizes[*count] = &spec[i + 2..group_end(spec, i + 1)];
+                    }
                     *count += 1;
                 }
                 if matches!(ch, b'p' | b'm' | b'b') && spec.get(i + 1) == Some(&b'{') {
@@ -550,7 +670,7 @@ fn scan_spec(spec: &[u8], aligns: &mut [u8; MAX_COLUMNS], count: &mut usize, lin
                 if spec.get(end + 1) == Some(&b'{') {
                     let close = group_end(spec, end + 1);
                     for _ in 0..n {
-                        scan_spec(&spec[end + 2..close], aligns, count, lines, flexible, depth + 1);
+                        scan_spec(&spec[end + 2..close], aligns, count, lines, flexible, sizes, depth + 1);
                     }
                     i = close;
                 } else {

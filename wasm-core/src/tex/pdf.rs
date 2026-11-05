@@ -1,7 +1,32 @@
+use super::fast_zip::Zip;
 use super::*;
 use crate::emit::brace_path;
 
-const FORM: &[u8] = b"/Type /XObject /Subtype /Form /BBox [-30000 -30000 30000 30000]";
+// Type 3 fonts reuse the existing outlines and preserve their exact metrics.
+// A ToUnicode map makes the same marks selectable and searchable.
+const FONT_CHARS: usize = 255;
+
+fn hex_code(out: &mut Vec<u8>, value: u32, digits: usize) {
+    for i in (0..digits).rev() {
+        out.push(b"0123456789ABCDEF"[((value >> (i * 4)) & 15) as usize]);
+    }
+}
+
+const UNICODE: [u32; GLYPHS.len()] = {
+    let mut out = [0xfffd; GLYPHS.len()];
+    let mut i = 0;
+    while i < GM_KEYS.len() {
+        if GM_KEYS[i] != 0 {
+            let id = GM_VALS[i] as usize;
+            let cp = (GM_KEYS[i] - 1) % 0x200000;
+            if cp < out[id] {
+                out[id] = cp;
+            }
+        }
+        i += 1;
+    }
+    out
+};
 
 #[derive(Default)]
 pub(super) struct Scratch {
@@ -12,6 +37,7 @@ pub(super) struct Scratch {
     body: Vec<u8>,
     form_spans: Vec<(u32, u32)>,
     form_bytes: Vec<u8>,
+    zip: Zip,
 }
 
 fn int(out: &mut Vec<u8>, v: i32) {
@@ -156,6 +182,12 @@ fn svg_path(out: &mut Vec<u8>, path: &[u8], origin: (i32, i32)) {
                 control = c;
                 cur = to;
             }
+            b'c' => {
+                let (a, b, c, d, x, y) = (next(), next(), next(), next(), next(), next());
+                ints(out, &[cur.0 + a, cur.1 + b, cur.0 + c, cur.1 + d, cur.0 + x, cur.1 + y], b"c");
+                cur = (cur.0 + x, cur.1 + y);
+                control = cur;
+            }
             b't' => {
                 let (x, y) = (next(), next());
                 let c = (2 * cur.0 - control.0, 2 * cur.1 - control.1);
@@ -296,8 +328,14 @@ impl Engine {
         });
     }
 
-    fn item_stream(&self, b: &mut Vec<u8>, items: &[Item], forms: &[u32], color: &mut (i32, i32, i32)) {
-        for it in items {
+    fn item_stream(&self, b: &mut Vec<u8>, items: &[Item], _forms: &[u32], color: &mut (i32, i32, i32)) {
+        let mut at = 0;
+        let mut text_open = false;
+        let mut font = usize::MAX;
+        let mut previous_scale = 0;
+        let mut origin = (0, 0);
+        while at < items.len() {
+            let it = &items[at];
             let next = self.group_color(it.g);
             if next != *color {
                 *color = next;
@@ -308,19 +346,74 @@ impl Engine {
                 milli(b, color.2);
                 b.extend_from_slice(b" rg\n");
             }
+            if it.kind != IT_GLYPH && text_open {
+                b.extend_from_slice(b"ET\n");
+                text_open = false;
+            }
             match it.kind {
                 IT_GLYPH => {
                     let scale = self.laid.groups[it.g as usize].scale as i32;
+                    let id = it.a as usize;
+                    if scale == 0 {
+                        at += 1;
+                        continue;
+                    }
+                    if !text_open {
+                        b.extend_from_slice(b"BT ");
+                        text_open = true;
+                        font = usize::MAX;
+                        previous_scale = 0;
+                    }
+                    let face = id / FONT_CHARS;
+                    if font != face {
+                        b.extend_from_slice(b"/F");
+                        int(b, face as i32);
+                        b.extend_from_slice(b" 1000 Tf ");
+                        font = face;
+                    }
+                    let dx = (it.x as i64 - origin.0 as i64) * 1_000_000 / scale as i64;
+                    let dy = (origin.1 as i64 - it.y as i64) * 1_000_000 / scale as i64;
+                    if previous_scale == scale && dx.abs() <= i32::MAX as i64 && dy.abs() <= i32::MAX as i64 {
+                        milli(b, dx as i32);
+                        b.push(b' ');
+                        milli(b, dy as i32);
+                        b.extend_from_slice(b" Td <");
+                    } else {
+                        milli(b, scale);
+                        b.extend_from_slice(b" 0 0 ");
+                        milli(b, -scale);
+                        b.push(b' ');
+                        int(b, it.x);
+                        b.push(b' ');
+                        int(b, it.y);
+                        b.extend_from_slice(b" Tm <");
+                    }
+                    previous_scale = scale;
+                    origin = (it.x, it.y);
+                    hex_code(b, (id % FONT_CHARS + 1) as u32, 2);
+                    let mut expected = it.x + sc(self.glyph_metric(id).w as i32, scale as u16);
+                    while at + 1 < items.len() {
+                        let next = items[at + 1];
+                        if next.kind != IT_GLYPH
+                            || next.g != it.g
+                            || next.y != it.y
+                            || next.x != expected
+                            || next.a as usize / FONT_CHARS != id / FONT_CHARS
+                        {
+                            break;
+                        }
+                        hex_code(b, (next.a as usize % FONT_CHARS + 1) as u32, 2);
+                        expected += sc(self.glyph_metric(next.a as usize).w as i32, scale as u16);
+                        at += 1;
+                    }
+                    b.extend_from_slice(b"> Tj\n");
+                }
+                IT_IMAGE => {
+                    let im = &self.laid.images[it.a as usize];
                     b.extend_from_slice(b"q ");
-                    milli(b, scale);
-                    b.extend_from_slice(b" 0 0 ");
-                    milli(b, scale);
-                    b.push(b' ');
-                    int(b, it.x);
-                    b.push(b' ');
-                    int(b, it.y);
-                    b.extend_from_slice(b" cm /G");
-                    int(b, forms[it.a as usize] as i32);
+                    ints(b, &[im.size.0, 0, 0, -im.size.1, it.x, it.y], b"cm");
+                    b.extend_from_slice(b"/I");
+                    int(b, it.a);
                     b.extend_from_slice(b" Do Q\n");
                 }
                 IT_RULE => ints(b, &[it.x, it.y, it.a, it.b], b"re f"),
@@ -348,6 +441,10 @@ impl Engine {
                     svg_path(b, &text[at..len], (x, y));
                 }
             }
+            at += 1;
+        }
+        if text_open {
+            b.extend_from_slice(b"ET\n");
         }
     }
 
@@ -360,8 +457,14 @@ impl Engine {
         self.out.extend_from_slice(b" 0 obj\n");
     }
 
-    fn stream(&mut self, head: &[u8], body: &[u8]) {
+    fn stream(&mut self, head: &[u8], body: &[u8], zip: &mut Zip) {
+        let compressed = if !head.windows(7).any(|w| w == b"/Filter") && body.len() >= 131072 { zip.compress(body) } else { &[] };
+        let use_compressed = !compressed.is_empty() && compressed.len() < body.len();
+        let body = if use_compressed { compressed } else { body };
         self.out.extend_from_slice(b"<< ");
+        if use_compressed {
+            self.out.extend_from_slice(b"/Filter /FlateDecode ");
+        }
         self.out.extend_from_slice(head);
         self.out.extend_from_slice(b" /Length ");
         int(&mut self.out, body.len() as i32);
@@ -472,11 +575,11 @@ impl Engine {
         const PAGES: usize = 2;
         const RESOURCES: usize = 3;
         let mut scratch = core::mem::take(&mut self.scratch);
-        let Scratch { offsets, forms, objects, kids, body, form_spans, form_bytes } = &mut scratch;
-        form_spans.resize(GLYPHS.len(), (0, 0));
+        let Scratch { offsets, forms, objects, kids, body, form_spans, form_bytes, zip } = &mut scratch;
+        form_spans.resize(self.glyph_count(), (0, 0));
         offsets.clear();
         forms.clear();
-        forms.resize(GLYPHS.len(), 0);
+        forms.resize(self.glyph_count(), 0);
         objects.clear();
         kids.clear();
         let mut next = 4;
@@ -491,14 +594,16 @@ impl Engine {
             let id = it.a as usize;
             forms[id] = objects.len() as u32 + 1;
             if form_spans[id].1 == 0 {
-                let g = &GLYPHS[id];
+                let g = self.glyph_metric(id);
                 let at = form_bytes.len();
-                svg_path(form_bytes, &PATHS[g.off as usize..g.off as usize + g.len as usize], (g.sx as i32, g.sy as i32));
+                int(form_bytes, g.w as i32);
+                form_bytes.extend_from_slice(b" 0 d0\n");
+                svg_path(form_bytes, self.glyph_path(id), (g.sx as i32, g.sy as i32));
                 form_spans[id] = (at as u32, form_bytes.len() as u32);
             }
             let (from, to) = form_spans[id];
             self.object(offsets, next);
-            self.stream(FORM, &form_bytes[from as usize..to as usize]);
+            self.stream(b"", &form_bytes[from as usize..to as usize], zip);
             objects.push((forms[id], next));
             next += 1;
         }
@@ -513,7 +618,7 @@ impl Engine {
             art_start = art_end;
             let content = next;
             self.object(offsets, content);
-            self.stream(b"", body);
+            self.stream(b"", body, zip);
             next += 1;
             self.object(offsets, next);
             let (w, h) = (self.laid.w * self.laid.pt, self.laid.h * self.laid.pt);
@@ -528,11 +633,139 @@ impl Engine {
             next += 1;
         }
 
+        let mut fonts = Vec::new();
+        for first in (0..self.glyph_count()).step_by(FONT_CHARS) {
+            let end = (first + FONT_CHARS).min(self.glyph_count());
+            if !forms[first..end].iter().any(|id| *id != 0) {
+                continue;
+            }
+            let cmap = next;
+            next += 1;
+            body.clear();
+            body.extend_from_slice(b"/CIDInit /ProcSet findresource begin 12 dict begin begincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /Quicktex def /CMapType 2 def\n1 begincodespacerange <01> <FF> endcodespacerange\n");
+            let used: Vec<_> = (first..end).filter(|i| forms[*i] != 0).collect();
+            for chunk in used.chunks(100) {
+                int(body, chunk.len() as i32);
+                body.extend_from_slice(b" beginbfchar\n");
+                for id in chunk {
+                    body.push(b'<');
+                    hex_code(body, (*id - first + 1) as u32, 2);
+                    body.extend_from_slice(b"> <");
+                    let cp = if *id < GLYPHS.len() { UNICODE[*id] } else { self.fonts.unicode[*id - GLYPHS.len()] };
+                    if cp > 0xffff {
+                        hex_code(body, 0xd800 + ((cp - 0x10000) >> 10), 4);
+                        hex_code(body, 0xdc00 + ((cp - 0x10000) & 1023), 4);
+                    } else {
+                        hex_code(body, cp, 4);
+                    }
+                    body.extend_from_slice(b">\n");
+                }
+                body.extend_from_slice(b"endbfchar\n");
+            }
+            body.extend_from_slice(b"endcmap CMapName currentdict /CMap defineresource pop end end\n");
+            self.object(offsets, cmap);
+            self.stream(b"", body, zip);
+            self.object(offsets, next);
+            fonts.push((first / FONT_CHARS, next));
+            next += 1;
+            let (mut x0, mut y0, mut x1, mut y1) = (0, 0, 0, 0);
+            for id in &used {
+                let g = self.glyph_metric(*id);
+                x0 = x0.min(g.sx as i32);
+                y0 = y0.min(-g.h as i32);
+                x1 = x1.max(g.w as i32 + g.it as i32);
+                y1 = y1.max(g.d as i32);
+            }
+            self.out.extend_from_slice(b"<< /Type /Font /Subtype /Type3 /FontBBox [");
+            for value in [x0, y0, x1, y1] {
+                int(&mut self.out, value);
+                self.out.push(b' ');
+            }
+            let low = *used.first().unwrap();
+            let high = *used.last().unwrap() + 1;
+            self.out.extend_from_slice(b"] /FontMatrix [0.001 0 0 -0.001 0 0] /Resources << >> /FirstChar ");
+            int(&mut self.out, (low - first + 1) as i32);
+            self.out.extend_from_slice(b" /LastChar ");
+            int(&mut self.out, (high - first) as i32);
+            self.out.extend_from_slice(b" /Widths [");
+            for id in low..high {
+                let w = self.glyph_metric(id).w;
+                int(&mut self.out, w as i32);
+                self.out.push(b' ');
+            }
+            self.out.extend_from_slice(b"] /Encoding << /Type /Encoding /Differences [");
+            let mut previous = usize::MAX;
+            for id in &used {
+                let code = id - first + 1;
+                if previous == usize::MAX || code != previous + 1 {
+                    self.out.push(b' ');
+                    int(&mut self.out, code as i32);
+                }
+                self.out.extend_from_slice(b" /g");
+                int(&mut self.out, *id as i32);
+                previous = code;
+            }
+            self.out.extend_from_slice(b"] >> /CharProcs <<");
+            for id in first..end {
+                if forms[id] == 0 {
+                    continue;
+                }
+                self.out.extend_from_slice(b" /g");
+                int(&mut self.out, id as i32);
+                self.out.push(b' ');
+                int(&mut self.out, objects[(forms[id] - 1) as usize].1 as i32);
+                self.out.extend_from_slice(b" 0 R");
+            }
+            self.out.extend_from_slice(b" >> /ToUnicode ");
+            int(&mut self.out, cmap as i32);
+            self.out.extend_from_slice(b" 0 R >>\nendobj\n");
+        }
+        let mut images = Vec::new();
+        for i in 0..self.laid.images.len() {
+            let im = self.laid.images[i].clone();
+            let alpha = if !im.alpha.is_empty() {
+                let id = next;
+                next += 1;
+                let head = alloc::format!(
+                    "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceGray /BitsPerComponent 8",
+                    im.pixels.0,
+                    im.pixels.1
+                );
+                self.object(offsets, id);
+                self.stream(head.as_bytes(), &im.alpha, zip);
+                Some(id)
+            } else {
+                None
+            };
+            let mut head = alloc::format!(
+                "/Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8",
+                im.pixels.0,
+                im.pixels.1
+            );
+            if im.jpeg {
+                head.push_str(" /Filter /DCTDecode");
+            }
+            if let Some(id) = alpha {
+                head.push_str(&alloc::format!(" /SMask {id} 0 R"));
+            }
+            self.object(offsets, next);
+            self.stream(head.as_bytes(), &im.data, zip);
+            images.push(next);
+            next += 1;
+        }
         self.object(offsets, RESOURCES);
-        self.out.extend_from_slice(b"<< /XObject <<");
-        for (name, id) in objects.iter() {
-            self.out.extend_from_slice(b" /G");
-            int(&mut self.out, *name as i32);
+        self.out.extend_from_slice(b"<< /Font <<");
+        for (name, id) in fonts {
+            self.out.extend_from_slice(b" /F");
+            int(&mut self.out, name as i32);
+            self.out.push(b' ');
+            int(&mut self.out, id as i32);
+            self.out.extend_from_slice(b" 0 R");
+        }
+        self.out.extend_from_slice(b" >> /XObject <<");
+        for (i, id) in images.iter().enumerate() {
+            self.out.extend_from_slice(b" /I");
+            int(&mut self.out, i as i32);
             self.out.push(b' ');
             int(&mut self.out, *id as i32);
             self.out.extend_from_slice(b" 0 R");

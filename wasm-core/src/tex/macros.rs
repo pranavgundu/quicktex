@@ -250,7 +250,7 @@ impl Engine {
     }
 
     fn require_source(&mut self) -> R<()> {
-        if self.user_src { Ok(()) } else { self.fail(E_MISPLACED) }
+        if self.user_src || !self.assets.active.is_empty() { Ok(()) } else { self.fail(E_MISPLACED) }
     }
 
     pub(super) fn skip_star(&mut self) -> bool {

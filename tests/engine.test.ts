@@ -57,6 +57,15 @@ describe('engine connection', () => {
     expect(port.texts()).toEqual(['a'])
   })
 
+  test('typing preserves project files queued during a compile', () => {
+    engine.compile('a')
+    const files = { 'part.tex': 'included text' }
+    engine.compile('b', files)
+    engine.compile('c')
+    port.reply(port.compiled())
+    expect(port.sent[1]).toMatchObject({ kind: 'compile', tex: 'c', files })
+  })
+
   test('only one compile runs at a time', () => {
     engine.compile('a')
     engine.compile('b')

@@ -6,7 +6,11 @@ export function init(source?: URL | string | ArrayBuffer | ArrayBufferView | Web
 
 export function render(tex: string, display?: boolean): string;
 
-export function renderDocument(tex: string): number;
+export type ProjectFiles = Record<string, string | Uint8Array>;
+export function renderDocument(tex: string, options?: { files?: ProjectFiles }): number;
+export function setFiles(files: ProjectFiles): void;
+export function registerFont(data: ArrayBuffer | ArrayBufferView, read?: (url: URL) => Promise<ArrayBuffer | ArrayBufferView> | ArrayBuffer | ArrayBufferView): Promise<void>;
+export function loadFontsFor(tex: string, read?: (url: URL) => Promise<ArrayBuffer | ArrayBufferView> | ArrayBuffer | ArrayBufferView): Promise<void>;
 
 export function documentPage(page: number): string;
 

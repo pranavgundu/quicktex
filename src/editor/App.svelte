@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { ProjectFiles } from '../../wasm-core/js/quicktex.js'
   import { untrack } from 'svelte'
   import Button from '../lib/Button.svelte'
   import Icon from '../lib/Icon.svelte'
@@ -23,6 +24,9 @@
   const opened = remembered(storageKey) ?? starter
 
   let source = $state(opened)
+  let files = $state.raw<ProjectFiles>({})
+  let fileInput: HTMLInputElement
+  let sentFiles: ProjectFiles | null = null
   let pages = $state(0)
   let version = $state(0)
   let sheets = $state.raw<string[]>([])
@@ -84,7 +88,9 @@
 
   $effect(() => {
     const tex = source
-    engine.compile(tex)
+    const project = files
+    engine.compile(tex, project === sentFiles ? undefined : project)
+    sentFiles = project
     const save = setTimeout(() => {
       remember(storageKey, tex)
       words = countWords(tex)
@@ -97,6 +103,18 @@
     const timer = setTimeout(() => engine.time(untrack(() => micros)), pdfDelay)
     return () => clearTimeout(timer)
   })
+
+  async function importFiles(event: Event) {
+    const selected = Array.from((event.target as HTMLInputElement).files ?? [])
+    const next = { ...files }
+    for (const file of selected) {
+      const name = file.webkitRelativePath || file.name
+      next[name] = /\.tex$/i.test(name) ? await file.text() : new Uint8Array(await file.arrayBuffer())
+      if (/^(main|document)\.tex$/i.test(name)) source = next[name] as string
+    }
+    files = next
+    fileInput.value = ''
+  }
 
   async function download() {
     const url = URL.createObjectURL(new Blob([(await engine.pdf()) as BlobPart], { type: 'application/pdf' }))
@@ -143,6 +161,12 @@
         <Typeset text="quicktex" tex={String.raw`\textbf{quicktex}`} />
       </a>
     </div>
+    <input class="hidden" type="file" multiple accept=".tex,.png,.jpg,.jpeg,.ttf,.otf" bind:this={fileInput} onchange={importFiles} />
+    <Button label="Add files" onclick={() => fileInput.click()} />
+    {#if Object.keys(files).length > 0}
+      <span class="text-sm text-quiet" title={Object.keys(files).join('\n')}>{Object.keys(files).length} project files</span>
+      <Button label="Clear files" onclick={() => (files = {})} />
+    {/if}
     <ThemeToggle />
     <Button primary disabled={pages === 0} icon={downloadIcon} label="Download PDF" short="PDF" onclick={download} />
     <Segmented

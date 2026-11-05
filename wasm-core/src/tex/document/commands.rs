@@ -452,19 +452,43 @@ impl Engine {
 
     fn graphic(&mut self, d: &mut Doc, c: &Ctx, font: u8) -> R<()> {
         let options = if self.peek() == b'[' { self.bracketed()? } else { b"" };
-        self.loose_argument();
-        let line = d.text_w as f64 * self.doc.pt as f64 / 1_000_000.0;
+        let name = self.loose_argument();
+        let image =
+            self.file_index(name, &[b".png", b".jpg", b".jpeg"]).and_then(|i| super::super::assets::Image::parse(&self.assets.files[i].1));
+        let line = d.text_w as f64 * self.doc.pt as f64 / 1000.0;
         let (mut w, mut h) = (0.0, 0.0);
+        let mut factor = 1.0;
         let mut at = 0;
         while let Some((key, value)) = figure::next_option(options, &mut at) {
             let size = relative_length(value, line);
             match key {
                 b"width" => w = size,
                 b"height" => h = size,
-                b"scale" => w = size * 200.0,
+                b"scale" => factor = size.max(0.0),
                 _ => {}
             }
         }
+        if let Some(mut image) = image {
+            let ratio = image.pixels.0 as f64 / image.pixels.1 as f64;
+            if w <= 0.0 && h <= 0.0 {
+                w = image.pixels.0 as f64 * 0.75;
+            }
+            if w <= 0.0 {
+                w = h * ratio;
+            }
+            if h <= 0.0 {
+                h = w / ratio;
+            }
+            let (w, h) = (self.pt_units((w * factor).min(10000.0)), self.pt_units((h * factor).min(10000.0)));
+            image.size = (w, h);
+            let id = self.doc.images.len();
+            self.doc.images.push(image);
+            let s = self.end();
+            self.push_item(c, 0, 0, id as i32, 0, IT_IMAGE);
+            self.add_box(d, Bx { s, e: self.end(), w, h, d: 0 });
+            return Ok(());
+        }
+        self.note(self.pos);
         if w <= 0.0 {
             w = if h > 0.0 { h * 1.5 } else { 200.0 };
         }
@@ -526,34 +550,95 @@ impl Engine {
         mark.extend_from_slice(b"$^{");
         push_number(&mut mark, n);
         mark.extend_from_slice(b"}$");
+        let anchor = self.end();
         self.put_template(d, c, font, &mark)?;
-        self.store.notes.push((n, text));
+        self.store.notes.push((n, text, anchor));
         Ok(())
     }
 
-    pub(super) fn flush_notes(&mut self, d: &mut Doc, left: i32, width: i32) -> R<()> {
-        if self.store.notes.is_empty() {
+    pub(super) fn reserve_notes(&mut self, d: &mut Doc, from: u32, to: u32, line_h: i32) -> R<()> {
+        let mut at = 0;
+        let mut gathered = Vec::new();
+        let mut total_h = 0;
+        while at < self.store.notes.len() {
+            let (n, text, anchor) = self.store.notes[at];
+            if anchor < from || anchor >= to {
+                at += 1;
+                continue;
+            }
+            self.store.notes.remove(at);
+            let words = core::mem::take(&mut self.words);
+            let ends = core::mem::take(&mut self.line_ends);
+            let costs = core::mem::take(&mut self.line_costs);
+            let start = self.doc.items.len();
+            let mut f = d.clone();
+            f.left = 0;
+            f.top = 0;
+            f.base = 0;
+            f.dep = 0;
+            f.skip = 0;
+            f.fresh = true;
+            f.note_h = 0;
+            f.bottom_h = 0;
+            f.word = None;
+            f.label = None;
+            f.text_h = i32::MAX / 4;
+            let small = font_size(b"footnotesize", self.doc.pt).unwrap_or(800);
+            let c = self.sized(d, small);
+            f.baseline = sc(1200, small);
+            f.topskip = 0;
+            let done = (|| {
+                let mut mark = Vec::with_capacity(24);
+                mark.extend_from_slice(b"$^{");
+                push_number(&mut mark, n);
+                mark.extend_from_slice(b"}$");
+                self.put_template(&mut f, &c, 0, &mark)?;
+                self.flush_word(&mut f, false);
+                self.sub_text(&mut f, text, &c, 0)?;
+                self.flush_word(&mut f, false);
+                self.set_lines(&mut f, &c, 0, d.text_w, 0, false, false);
+                Ok(())
+            })();
+            self.words = words;
+            self.line_ends = ends;
+            self.line_costs = costs;
+            let mut rendered = self.doc.items.split_off(start);
+            done?;
+            let height = f.base + f.dep + 200;
+            for it in &mut rendered {
+                it.y += total_h;
+            }
+            gathered.extend(rendered);
+            total_h += height;
+        }
+        if total_h == 0 {
             return Ok(());
         }
-        let notes = core::mem::take(&mut self.store.notes);
-        let small = font_size(b"footnotesize", self.doc.pt).unwrap_or(800);
-        let c = self.sized(d, small);
-        for (n, text) in &notes {
-            d.skip += 200;
-            self.block_reset();
-            let mut mark = Vec::with_capacity(24);
-            mark.extend_from_slice(b"$^{");
-            push_number(&mut mark, *n);
-            mark.extend_from_slice(b"}$");
-            self.put_template(d, &c, 0, &mark)?;
-            self.flush_word(d, false);
-            self.sub_text(d, text, &c, 0)?;
-            self.flush_word(d, false);
-            self.set_lines(d, &c, left, width, 0, false, false);
+        // All notes on this line move with their markers as one reservation.
+        let next_line = if d.fresh { line_h.max(d.topskip) } else { d.base + d.baseline.max(line_h) + d.skip };
+        let gap = if d.note_h == 0 { 700 } else { 0 };
+        if !d.fresh && next_line + d.note_h + d.bottom_h + total_h + gap > d.text_h {
+            self.new_page(d)?;
         }
-        self.store.notes = notes;
-        self.store.notes.clear();
+        let gap = if d.note_h == 0 { 700 } else { 0 };
+        for it in &mut gathered {
+            it.y += d.note_h + gap;
+        }
+        self.store.foot_items.extend(gathered);
+        d.note_h += gap + total_h;
         Ok(())
+    }
+
+    pub(super) fn finish_notes(&mut self, d: &mut Doc) {
+        if d.note_h == 0 {
+            return;
+        }
+        let y = d.top + d.text_h - d.note_h;
+        self.doc.items.push(Item { x: d.left, y: y + 500, a: d.text_w / 3, b: 40, g: d.ctx.grp, kind: IT_RULE });
+        for it in self.store.foot_items.drain(..) {
+            self.doc.items.push(Item { x: it.x + d.left, y: it.y + y, ..it });
+        }
+        d.note_h = 0;
     }
 
     #[inline(never)]
