@@ -1,0 +1,10 @@
+{
+  "name": "quicktex-bench",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "katex": "0.19.1",
+    "mathjax-full": "3.2.2",
+    "temml": "0.14.0"
+  }
+}

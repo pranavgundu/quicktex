@@ -87,6 +87,10 @@ bun run test
 
 `test:rust` runs the engine tests natively. `test` runs the real wasm binary, every editor suggestion through the engine, recorded output hashes, speed budgets, and the production build in Chrome. After an intended output change, rerun with `UPDATE_GOLDEN=1 bun test tests/golden.test.ts` and review the diff.
 
+## Benchmarks
+
+`bench` times quicktex against `pdflatex`, `xelatex`, `lualatex`, Tectonic, KaTeX, MathJax and Temml, with no editor involved. See [bench/README.md](bench/README.md) and [bench/results.md](bench/results.md).
+
 ## Packages
 
 Load a package with `\usepackage{...}` in the input, which lasts for that render, or with `usePackage(name)`, which lasts until the page closes.

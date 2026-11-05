@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p tsconfig.test.json",
     "test": "bun test --timeout 120000 tests",
-    "test:rust": "sh wasm-core/test.sh"
+    "test:rust": "sh wasm-core/test.sh",
+    "bench": "bun bench/run.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
