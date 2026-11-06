@@ -13,16 +13,22 @@ test('uploaded TeX and image files compile together in the editor', async () => 
   try {
     await s.page.goto(`${site.url}editor/`)
     await s.page.waitForSelector('article svg')
+    s.page.on('dialog', (dialog) => dialog.accept())
     await s.page.locator('input[type=file]').setInputFiles([
       { name: 'main.tex', mimeType: 'text/plain', buffer: Buffer.from(String.raw`\documentclass{article}\begin{document}\input{part}\includegraphics[width=2cm]{image}\end{document}`) },
       { name: 'part.tex', mimeType: 'text/plain', buffer: Buffer.from('Imported chapter text.') },
       { name: 'image.png', mimeType: 'image/png', buffer: readFileSync(new URL('../fixtures/image.png', import.meta.url)) },
     ])
     await s.page.waitForSelector('article svg image')
-    expect(await s.page.locator('header').innerText()).toContain('3 project files')
+    expect(await s.page.getByRole('complementary', { name: 'Project navigation' }).innerText()).toContain('part.tex')
+    expect(await s.page.getByRole('complementary', { name: 'Project navigation' }).innerText()).toContain('image.png')
     expect(await s.page.locator('.cm-content').innerText()).toContain(String.raw`\input{part}`)
     expect(await s.page.locator('[role=status]').first().innerText()).not.toContain('Compatibility warning:')
-    await s.page.getByRole('button', { name: 'Clear files', exact: true }).click()
+    await s.page.waitForFunction(() => document.querySelector('.save-indicator')?.textContent === 'Saved locally')
+    await s.page.reload()
+    await s.page.waitForSelector('article svg image')
+    await s.page.getByLabel('Actions for image.png').click()
+    await s.page.getByRole('button', { name: 'Delete', exact: true }).click()
     await s.page.waitForFunction(() => !document.querySelector('article svg image'))
     expect(s.problems).toEqual([])
   } finally { await s.context.close() }
@@ -37,6 +43,7 @@ test('the editor loads Unicode fonts and their parser only when required', async
     await s.page.waitForSelector('article svg')
     expect(requested.some((url) => /NotoSerif|quicktex-fonts/.test(url))).toBe(false)
     const previous = await s.page.locator('article').first().innerHTML()
+    s.page.on('dialog', (dialog) => dialog.accept())
     await s.page.locator('input[type=file]').setInputFiles({ name: 'main.tex', mimeType: 'text/plain', buffer: Buffer.from(String.raw`\documentclass{article}\begin{document}` + 'Ελληνικά Русский 中文 日本語 한국어' + String.raw`\end{document}`) })
     await s.page.waitForFunction((html) => document.querySelector('article')?.innerHTML !== html, previous)
     expect(await s.page.locator('[role=status]').first().innerText()).not.toContain('Compatibility warning:')

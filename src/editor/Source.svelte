@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte'
-  import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+  import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, toggleLineComment, indentSelection } from '@codemirror/commands'
   import {
     bracketMatching,
     codeFolding,
@@ -12,7 +12,7 @@
     syntaxHighlighting,
   } from '@codemirror/language'
   import { stex } from '@codemirror/legacy-modes/mode/stex'
-  import { EditorState, Prec, StateEffect, StateField } from '@codemirror/state'
+  import { Compartment, EditorState, Prec, StateEffect, StateField } from '@codemirror/state'
   import {
     crosshairCursor,
     Decoration,
@@ -34,8 +34,9 @@
     completionKeymap,
     completionStatus,
     selectedCompletion,
+    snippet,
   } from '@codemirror/autocomplete'
-  import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
+  import { highlightSelectionMatches, search, searchKeymap, openSearchPanel, gotoLine } from '@codemirror/search'
   import { tags } from '@lezer/highlight'
   import { chevronDown, chevronRight } from '../lib/icons'
   import { isPlain, latexCompletions, renderPreview } from './completions'
@@ -46,15 +47,36 @@
     errorAt = null,
     onsave,
     oncursor,
+    ondoc,
+    documentId = 'main.tex',
+    fontSize = 14,
+    wrap = true,
+    numbers = true,
   }: {
     value: string
     errorAt?: number | null
     onsave?: () => void
-    oncursor?: (at: number) => void
+    oncursor?: (at: number, line: number, column: number) => void
+    ondoc?: (text: string) => void
+    documentId?: string
+    fontSize?: number
+    wrap?: boolean
+    numbers?: boolean
   } = $props()
 
   let host: HTMLDivElement
   let view: EditorView | undefined
+  const documents = new Map<string, EditorState>()
+  const appearance = new Compartment()
+  let currentId = ''
+  let syncing = false
+  let configuration: import('@codemirror/state').Extension[] = []
+
+  const appearanceFor = (size: number, wrapping: boolean, gutters: boolean) => [
+    EditorView.theme({ '&': { fontSize: `${size}px` } }),
+    ...(wrapping ? [EditorView.lineWrapping] : []),
+    ...(gutters ? [lineNumbers()] : []),
+  ]
 
   const setError = StateEffect.define<number | null>()
 
@@ -202,8 +224,8 @@
       parent: host,
       state: EditorState.create({
         doc: untrack(() => value),
-        extensions: [
-          lineNumbers(),
+        extensions: configuration = [
+          appearance.of(untrack(() => appearanceFor(fontSize, wrap, numbers))),
           highlightActiveLine(),
           highlightActiveLineGutter(),
           history(),
@@ -231,11 +253,11 @@
           }),
           search({ top: true }),
           highlightSelectionMatches(),
-          EditorView.lineWrapping,
           StreamLanguage.define(stex),
           EditorState.languageData.of(() => [
             {
               closeBrackets: { brackets: ['{', '$'], before: ')]}$:;>,' },
+              commentTokens: { line: '%' },
               indentOnInput: /^\s*\\end\{[a-zA-Z*]+\}$/,
             },
           ]),
@@ -259,6 +281,7 @@
               { key: 'Backspace', run: deletePair },
               { key: 'Mod-b', run: bold },
               { key: 'Mod-i', run: italic },
+              { key: 'Mod-g', run: gotoLine },
               { key: 'Mod-s', run: () => (onsave?.(), true) },
             ]),
           ),
@@ -273,13 +296,21 @@
           ]),
           EditorView.contentAttributes.of({ 'aria-label': 'LaTeX source', spellcheck: 'false', autocapitalize: 'off' }),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) value = update.state.doc.toString()
-            if (update.selectionSet || update.docChanged) oncursor?.(update.state.selection.main.head)
+            if (update.docChanged && !syncing) {
+              value = update.state.doc.toString()
+              ondoc?.(value)
+            }
+            if (update.selectionSet || update.docChanged) {
+              const head = update.state.selection.main.head
+              const line = update.state.doc.lineAt(head)
+              oncursor?.(head, line.number, head - line.from + 1)
+            }
           }),
         ],
       }),
     })
     view = editor
+    currentId = untrack(() => documentId)
     return () => {
       view = undefined
       editor.destroy()
@@ -288,14 +319,66 @@
 
   $effect(() => {
     const text = value
-    if (view && view.state.doc.toString() !== text) {
+    const id = documentId
+    if (!view) return
+    syncing = true
+    if (currentId !== id) {
+      documents.set(currentId, view.state)
+      view.setState(documents.get(id) ?? EditorState.create({ doc: text, extensions: configuration }))
+      currentId = id
+      const head = view.state.selection.main.head
+      const line = view.state.doc.lineAt(head)
+      oncursor?.(head, line.number, head - line.from + 1)
+      view.focus()
+    }
+    if (view.state.doc.toString() !== text) {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: text } })
     }
+    syncing = false
   })
 
   $effect(() => {
+    documentId
     view?.dispatch({ effects: setError.of(errorAt) })
   })
+
+  $effect(() => {
+    documentId
+    const settings = appearanceFor(fontSize, wrap, numbers)
+    // Reconfigure cached documents too, without discarding history.
+    for (const [id, state] of documents) documents.set(id, state.update({ effects: appearance.reconfigure(settings) }).state)
+    view?.dispatch({ effects: appearance.reconfigure(settings) })
+  })
+
+  export function forget(id: string) {
+    documents.delete(id)
+    // Do not re-cache a deleted file on the next tab switch.
+    if (currentId === id) currentId = ''
+  }
+
+  export function rename(from: string, to: string) {
+    const stored = documents.get(from)
+    documents.delete(from)
+    if (stored) documents.set(to, stored)
+    if (currentId === from) currentId = to
+  }
+
+  export function run(command: string) {
+    if (!view) return
+    const commands: Record<string, (view: EditorView) => boolean> = {
+      undo, redo, bold, italic, comment: toggleLineComment, indent: indentSelection,
+      search: openSearchPanel, goto: gotoLine,
+    }
+    commands[command]?.(view)
+    if (command !== 'search' && command !== 'goto') view.focus()
+  }
+
+  export function insert(template: string) {
+    if (!view) return
+    const range = view.state.selection.main
+    snippet(template)(view, null, range.from, range.to)
+    view.focus()
+  }
 
   export function jump(at: number) {
     if (!view) return

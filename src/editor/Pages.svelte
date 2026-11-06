@@ -22,9 +22,17 @@
   let pageWidth = $state(55)
   let pageHeight = $state(71)
   let visible = $state.raw(new Set<number>())
+  let scrollTop = $state(0)
+
+  function goToPage(page: number) {
+    if (!count) return
+    const index = Math.min(count, Math.max(1, Math.round(page))) - 1
+    scroller.querySelectorAll('article')[index]?.scrollIntoView({ block: 'start', inline: 'nearest' })
+  }
 
   const fitted = $derived(Math.max(width - margin, 120) / pageWidth)
   const size = $derived(fitted * zoom)
+  const currentPage = $derived(count === 0 ? 0 : Math.min(count, Math.max(1, Math.floor(Math.max(0, scrollTop - 24) / (pageHeight * size + 24)) + 1)))
 
   $effect(() => {
     const value = String(zoom)
@@ -221,6 +229,7 @@
     bind:this={scroller}
     bind:clientWidth={width}
     bind:clientHeight={height}
+    onscroll={() => scrollTop = scroller.scrollTop}
     use:gestures
     onpointerdown={grab}
     ondblclick={(event) => zoomAt(doubleClickZoom(zoom), event.clientX, event.clientY)}
@@ -237,6 +246,12 @@
         ></article>
       {/each}
     </div>
+  </div>
+  <div class="absolute top-3 right-4 z-10 flex h-8 items-center gap-2 rounded-control border border-rule-strong bg-sheet px-2 text-xs text-quiet" aria-label="Page navigation">
+    <button type="button" aria-label="Previous page" disabled={currentPage <= 1} onclick={() => goToPage(currentPage - 1)}>‹</button>
+    <input class="w-9 rounded-control bg-paper px-1 text-center text-ink" type="number" min="1" max={count || 1} value={currentPage} aria-label="Page number" disabled={count === 0} onchange={(event) => { const page = Number(event.currentTarget.value); if (Number.isFinite(page)) goToPage(page) }} />
+    <span>/ {count}</span>
+    <button type="button" aria-label="Next page" disabled={currentPage >= count} onclick={() => goToPage(currentPage + 1)}>›</button>
   </div>
   <div class="absolute right-4 bottom-4 z-10 flex h-10 overflow-hidden rounded-control border border-rule-strong bg-sheet">
     <button class={zoomButton} type="button" aria-label="Zoom out" disabled={zoom <= minZoom} onclick={() => zoomMiddle(nextPreset(zoom, -1))}>

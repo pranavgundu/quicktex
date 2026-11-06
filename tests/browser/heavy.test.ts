@@ -37,8 +37,10 @@ const shown = () => s.page.evaluate(() => (document.querySelector('.cm-content')
 
 async function toTitle() {
   await s.page.locator('.cm-content').click()
-  await s.page.keyboard.press('ControlOrMeta+Home')
-  for (let i = 0; i < titleLine; i++) await s.page.keyboard.press('ArrowDown')
+  // Navigate by document line, not visual line (which depends on sidebar width/wrapping).
+  await s.page.keyboard.press('ControlOrMeta+g')
+  await s.page.locator('input[name=line]').fill(String(titleLine + 1))
+  await s.page.keyboard.press('Enter')
   await s.page.keyboard.press('End')
   for (let i = 0; i < 3; i++) await s.page.keyboard.press('ArrowLeft')
   expect(await s.page.locator('.cm-activeLine').innerText()).toBe(tree.split('\n')[titleLine]!)

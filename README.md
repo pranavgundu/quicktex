@@ -39,7 +39,14 @@ render(String.raw`\dv{f}{x}`)
 
 ## Full editor
 
-`/editor/` is a separate page for whole documents. Write on the left, read the pages on the right, and download a PDF. It runs entirely in the browser and keeps your document in local storage.
+`/editor/` is a local-first workspace for whole documents, with the same green palette, serif controls and instant preview as the formula page. Write on the left, read the pages on the right, and download a PDF or the current source file. The root document is `main.tex`. Source is saved in local storage; supporting files and binary assets are saved asynchronously in IndexedDB. There is no account, cloud sync or collaboration; download backups of important work.
+
+- **Project sidebar:** import files, create text files (including folder paths), filter, rename and delete. Open TeX/BibTeX files in tabs with independent undo histories and selections. Clicking an imported PNG/JPEG inserts its `\\includegraphics` command.
+- **Outline:** sections in the current file update after a short idle delay and jump directly to source.
+- **Editing tools:** undo/redo, bold/italic, comments, find/replace (regex, case and whole-word matching), and insert menus for sections, equations, lists, tables, figures, references and citations. Snippet fields are editable with Tab.
+- **Command palette:** Cmd/Ctrl + Shift + P; **go to line:** Cmd/Ctrl + G; **save locally:** Cmd/Ctrl + S; **compile:** Cmd/Ctrl + Enter.
+- **Settings:** font size, line wrapping and line numbers persist across reloads. Collapse the sidebar or choose editor-only, preview-only or split layouts. Phones show one pane at a time.
+- **Preview:** automatic compilation can be switched off; page navigation, zoom, pan and PDF downloads stay available. Diagnostics jump to the root source. QuickTeX's existing LaTeX compatibility limits still apply.
 
 The engine runs in a Web Worker, so typing never waits for a compile. Text typed during a compile collapses to the newest version, so a slow document only delays the pages, not the keys.
 
@@ -62,7 +69,7 @@ Unsupported commands, package options and document classes produce warnings; par
 
 Documents now support:
 
-- Virtual project files for `\input`, `\include`, `.bib` bibliographies, and PNG/JPEG `\includegraphics`, with aspect-ratio sizing and PNG transparency. Use **Add files** in the editor; importing `main.tex` or `document.tex` also opens it as the main source. Imported files live in the current tab and must be added again after a reload.
+- Virtual project files for `\input`, `\include`, `.bib` bibliographies, and PNG/JPEG `\includegraphics`, with aspect-ratio sizing and PNG transparency. Use **Add files** in the editor; importing `main.tex` or `document.tex` also opens it as the main source. Supporting files and assets persist in this browser using IndexedDB; the save indicator reports storage failures.
 - `.bib` references from `\bibliography` with numeric and common natbib author/year citations, citation notes and `\nocite`. The built-in formatter accepts `plain`, `unsrt`, `abbrv` and their `nat` variants; it does not execute arbitrary `.bst` files or Biber. Macro-generated citations and conditional resource discovery are limited and produce warnings.
 - Multi-page `longtable` output. Oversized `tabular` tables also preserve their rows across pages and warn about this fallback. Repeated longtable heads/feet and rows taller than a page warn.
 - Custom and built-in counters, `\arabic`, alphabetic/Roman forms, count registers, `\advance` and bounded `\loop ... \ifnum ... \repeat`. This remains a subset of TeX programming; loops are limited to 1,000 iterations per render and custom `\refstepcounter` label binding warns.
