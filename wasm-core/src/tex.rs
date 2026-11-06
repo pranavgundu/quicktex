@@ -2,6 +2,7 @@ use crate::data::*;
 use alloc::vec::Vec;
 
 pub(crate) mod assets;
+mod bibliography;
 mod document;
 mod fast_zip;
 mod fonts;
@@ -170,6 +171,8 @@ const E_UNIT: u8 = 11;
 const E_MISPLACED: u8 = 12;
 const E_PACKAGE: u8 = 13;
 const E_OPTION: u8 = 14;
+const E_COUNTER: u8 = 15;
+const E_LOOP: u8 = 16;
 
 pub const IT_GLYPH: u8 = 0;
 pub const IT_RULE: u8 = 1;
@@ -205,6 +208,7 @@ pub struct Bx {
 pub struct Grp {
     pub scale: u16,
     pub color: u16,
+    pub link: u32,
 }
 
 #[derive(Clone, Copy)]
@@ -314,6 +318,10 @@ pub struct Engine {
     pub(crate) groups: Vec<Grp>,
     pub(crate) colors: Vec<(u32, u32)>,
     pub(crate) color_bytes: Vec<u8>,
+    counters: Vec<macros::Counter>,
+    loop_iterations: u32,
+    has_count_registers: bool,
+    active_link: u32,
     color_defs: Vec<(&'static [u8], u16)>,
     defs: Vec<Def>,
     def_hash: [u16; DEF_SLOTS],
@@ -552,6 +560,10 @@ impl Engine {
             groups: Vec::with_capacity(16),
             colors: Vec::with_capacity(16),
             color_bytes: Vec::with_capacity(256),
+            counters: Vec::new(),
+            loop_iterations: 0,
+            has_count_registers: false,
+            active_link: 0,
             color_defs: Vec::new(),
             defs: Vec::new(),
             def_hash: [0; DEF_SLOTS],
@@ -630,6 +642,7 @@ impl Engine {
         self.len = len;
         self.items.clear();
         self.groups.clear();
+        self.active_link = 0;
         self.colors.clear();
         self.cells.clear();
         self.rows.clear();
@@ -638,9 +651,10 @@ impl Engine {
         self.mids.clear();
         self.color_bytes.clear();
         self.colors.push((0, 0));
-        self.groups.push(Grp { scale: UNIT, color: 0 });
+        self.groups.push(Grp { scale: UNIT, color: 0, link: 0 });
         self.depth = 0;
         self.reparses = 0;
+        self.spliced = 0;
         self.over_stop = usize::MAX;
         self.stop_tok = 0;
         self.err = 0;
@@ -689,6 +703,8 @@ impl Engine {
             E_MISPLACED => b"misplaced token",
             E_PACKAGE => b"unknown package",
             E_OPTION => b"unsupported drawing option",
+            E_COUNTER => b"invalid or undefined counter",
+            E_LOOP => b"invalid loop or iteration limit exceeded",
             _ => b"parse error",
         };
         self.out.clear();
@@ -785,11 +801,11 @@ impl Engine {
 
     fn grp(&mut self, color: u16, scale: u16) -> u16 {
         for (i, g) in self.groups.iter().enumerate() {
-            if g.scale == scale && g.color == color {
+            if g.scale == scale && g.color == color && g.link == self.active_link {
                 return i as u16;
             }
         }
-        self.groups.push(Grp { scale, color });
+        self.groups.push(Grp { scale, color, link: self.active_link });
         (self.groups.len() - 1) as u16
     }
 
@@ -801,6 +817,12 @@ impl Engine {
 
     #[inline(always)]
     fn push_glyph(&mut self, g: u16, x: i32, y: i32, grp: u16) {
+        let grp = if self.active_link != 0 && self.groups[grp as usize].link != self.active_link {
+            let style = self.groups[grp as usize];
+            self.grp(style.color, style.scale)
+        } else {
+            grp
+        };
         if self.glyph_metric(g as usize).len != 0 {
             self.items.push(Item { x, y, a: g as i32, b: 0, g: grp, kind: IT_GLYPH });
         }
@@ -1058,6 +1080,9 @@ impl Engine {
                     let tok = self.pos;
                     self.pos += 1;
                     let name = self.read_name();
+                    if self.control_command(name)? {
+                        continue;
+                    }
                     if !self.defs.is_empty() {
                         if let Some(d) = self.find_def(name) {
                             self.expand_into(r, c, &d)?;
@@ -2437,6 +2462,9 @@ impl Engine {
                     let tok = self.pos;
                     self.pos += 1;
                     let name = self.read_name();
+                    if self.control_command(name)? {
+                        continue;
+                    }
                     if !self.defs.is_empty() {
                         if let Some(d) = self.find_def(name) {
                             let b = self.text_def(&d, c, font)?;

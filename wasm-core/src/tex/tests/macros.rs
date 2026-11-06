@@ -110,3 +110,62 @@ fn many_macros_can_coexist() {
     }
     same(&s, &want).unwrap();
 }
+
+#[test]
+fn counters_and_integer_registers_work() {
+    check(
+        &[
+            (r"\newcounter{n}\setcounter{n}{12}\arabic{n}", "12"),
+            (r"\newcounter{n}\addtocounter{n}{-2}\then", "-2"),
+            (r"\newcounter{n}\stepcounter{n}\alph{n}\Alph{n}", "aA"),
+            (r"\newcounter{n}\setcounter{n}{14}\roman{n}\Roman{n}", "xivXIV"),
+            (r"\newcounter{p}\newcounter{c}[p]\setcounter{c}{7}\stepcounter{p}\arabic{p}\arabic{c}", "10"),
+            (r"\newcount\i\i=2\advance\i by 3\the\i", "5"),
+            (r"\newcount\i\i=-2\advance\i 1\number\i", "-1"),
+            (r"\newcounter{n}\setcounter{n}{2}\newcounter{m}\setcounter{m}{\value{n}}\arabic{m}", "2"),
+            (r"\text{\newcounter{n}\stepcounter{n}\arabic{n}}", r"\text{1}"),
+        ],
+        |r| same(r.0, r.1),
+    );
+}
+
+#[test]
+fn tex_loops_evaluate_state_each_iteration() {
+    check(
+        &[
+            (r"\newcount\i\i=0\loop\the\i\advance\i by 1\ifnum\i<4\repeat", "0123"),
+            (r"\newcounter{n}\loop\stepcounter{n}\arabic{n}\ifnum\value{n}<3\repeat", "123"),
+            (r"\newcount\i\i=0\loop\advance\i by1\ifnum\i<3 x\repeat", "xx"),
+            (r"\newcount\i\newcount\j\i=0\loop\j=0\loop x\advance\j by1\ifnum\j<2\repeat\advance\i by1\ifnum\i<2\repeat", "xxxx"),
+        ],
+        |r| same(r.0, r.1),
+    );
+}
+
+#[test]
+fn counter_errors_and_loops_are_bounded() {
+    for source in [r"\setcounter{missing}{1}", r"\newcounter{n}\setcounter{n}{oops}", r"\newcount\i\i=2147483647\advance\i by1"] {
+        assert_eq!(inline(source).unwrap_err().0, "invalid or undefined counter", "{source}");
+    }
+    for source in [r"\loop x\repeat", r"\loop x\ifnum1<2", r"\loop\ifnum1<2\repeat"] {
+        assert_eq!(inline(source).unwrap_err().0, "invalid loop or iteration limit exceeded", "{source}");
+    }
+    let mut engine = Engine::new();
+    render_with(&mut engine, r"\newcounter{n}\stepcounter{n}\arabic{n}", false).unwrap();
+    assert_eq!(render_with(&mut engine, r"\arabic{n}", false).unwrap_err().0, "invalid or undefined counter");
+}
+
+#[test]
+fn deeply_nested_counter_values_fail_with_a_depth_error() {
+    let source = format!("\\newcounter{{n}}\\setcounter{{n}}{}1{}", "{".repeat(5000), "}".repeat(5000));
+    assert_eq!(inline(&source).unwrap_err().0, "nesting too deep");
+}
+
+#[test]
+fn user_counter_formatting_macros_take_precedence() {
+    same(r"\setcounter{section}{4}\setcounter{subsection}{2}\setcounter{subsubsection}{3}\thesubsection\thesubsubsection", "4.24.2.3")
+        .unwrap();
+    same(r"\setcounter{section}{-2147483648}\arabic{section}", "-2147483648").unwrap();
+    same(r"\newcounter{foo}\stepcounter{foo}\renewcommand{\thefoo}{z}\thefoo", "z").unwrap();
+    same(r"\setcounter{section}{4}\renewcommand{\thesection}{\Roman{section}}\thesection", "IV").unwrap();
+}

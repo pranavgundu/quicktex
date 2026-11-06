@@ -50,8 +50,8 @@
   )
   const warningToken = $derived(warningAt === null ? '' : (/^\\[a-zA-Z@]+|^\S{1,16}/.exec(source.slice(warningAt))?.[0] ?? ''))
   const warningLine = $derived(warningAt === null ? 0 : source.slice(0, warningAt).split('\n').length)
-  const warningText = $derived(`Ignored ${warningToken} on line ${warningLine}${warningCount > 1 ? `, ${warningCount - 1} more` : ''}`)
-  const warningTex = $derived(`\\text{Ignored }\\texttt{${warningToken.replace(/[^a-zA-Z0-9]/g, (c) => (c === '\\' ? '\\textbackslash ' : ''))}}\\text{ on line ${warningLine}${warningCount > 1 ? `, ${warningCount - 1} more` : ''}}`)
+  const warningText = $derived(`Compatibility warning: ${warningToken} on line ${warningLine}${warningCount > 1 ? `, ${warningCount - 1} more` : ''}`)
+  const warningTex = $derived(`\\text{Compatibility warning: }\\texttt{${warningToken.replace(/[^a-zA-Z0-9]/g, (c) => (c === '\\' ? '\\textbackslash ' : ''))}}\\text{ on line ${warningLine}${warningCount > 1 ? `, ${warningCount - 1} more` : ''}}`)
 
   function show(fresh: Sheet[]) {
     if (problem || fresh.length === 0) return
@@ -119,7 +119,7 @@
     const next = { ...files }
     for (const file of selected) {
       const name = file.webkitRelativePath || file.name
-      next[name] = /\.tex$/i.test(name) ? await file.text() : new Uint8Array(await file.arrayBuffer())
+      next[name] = /\.(tex|bib)$/i.test(name) ? await file.text() : new Uint8Array(await file.arrayBuffer())
       if (/^(main|document)\.tex$/i.test(name)) source = next[name] as string
     }
     files = next
@@ -174,7 +174,7 @@
         <Typeset text="quicktex" tex={String.raw`\textbf{quicktex}`} />
       </a>
     </div>
-    <input class="hidden" type="file" multiple accept=".tex,.png,.jpg,.jpeg,.ttf,.otf" bind:this={fileInput} onchange={importFiles} />
+    <input class="hidden" type="file" multiple accept=".tex,.bib,.png,.jpg,.jpeg,.ttf,.otf" bind:this={fileInput} onchange={importFiles} />
     <Button label="Add files" onclick={() => fileInput.click()} />
     {#if Object.keys(files).length > 0}
       <span class="text-sm text-quiet" title={Object.keys(files).join('\n')}>{Object.keys(files).length} project files</span>

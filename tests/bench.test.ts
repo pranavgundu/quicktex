@@ -5,7 +5,7 @@ import { renderDocument } from './support/engine'
 
 describe('benchmark documents', () => {
   for (const [name, document] of Object.entries(documents)) {
-    test(`${name} compiles with nothing skipped`, () => {
+    test(`${name} compiles without compatibility warnings`, () => {
       expect(renderDocument(document.tex())).toBeGreaterThan(0)
       expect(documentWarnings()).toEqual([])
     })

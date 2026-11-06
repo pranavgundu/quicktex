@@ -40,20 +40,39 @@ pub(super) struct Scratch {
     zip: Zip,
 }
 
-fn int(out: &mut Vec<u8>, v: i32) {
+const DIGITS: &[u8; 200] = b"00010203040506070809101112131415161718192021222324252627282930313233343536373839404142434445464748495051525354555657585960616263646566676869707172737475767778798081828384858687888990919293949596979899";
+
+pub(super) fn int(out: &mut Vec<u8>, v: i32) {
     if v < 0 {
         out.push(b'-');
     }
-    let mut digits = [0u8; 10];
     let mut n = v.unsigned_abs();
+    if n < 10 {
+        out.push(b'0' + n as u8);
+        return;
+    }
+    if n < 100 {
+        let pair = n as usize * 2;
+        out.extend_from_slice(&DIGITS[pair..pair + 2]);
+        return;
+    }
+    let mut digits = [0u8; 10];
     let mut i = digits.len();
-    loop {
+    while n >= 100 {
+        let pair = (n % 100) as usize * 2;
+        n /= 100;
+        i -= 2;
+        digits[i] = DIGITS[pair];
+        digits[i + 1] = DIGITS[pair + 1];
+    }
+    if n < 10 {
         i -= 1;
-        digits[i] = b'0' + (n % 10) as u8;
-        n /= 10;
-        if n == 0 {
-            break;
-        }
+        digits[i] = b'0' + n as u8;
+    } else {
+        let pair = n as usize * 2;
+        i -= 2;
+        digits[i] = DIGITS[pair];
+        digits[i + 1] = DIGITS[pair + 1];
     }
     out.extend_from_slice(&digits[i..]);
 }
@@ -74,9 +93,26 @@ fn milli(out: &mut Vec<u8>, v: i32) {
 }
 
 fn rgb(out: &mut Vec<u8>, color: u32, op: &[u8]) {
-    for shift in [16, 8, 0] {
-        milli(out, ((color >> shift) & 255) as i32 * 1000 / 255);
-        out.push(b' ');
+    // Most drawing operations use these exact channel endpoints. Emit their
+    // existing representation directly instead of formatting three numbers.
+    let channels: Option<&[u8]> = match color & 0xffffff {
+        0x000000 => Some(b"0 0 0 "),
+        0xff0000 => Some(b"1 0 0 "),
+        0x00ff00 => Some(b"0 1 0 "),
+        0x0000ff => Some(b"0 0 1 "),
+        0xffff00 => Some(b"1 1 0 "),
+        0xff00ff => Some(b"1 0 1 "),
+        0x00ffff => Some(b"0 1 1 "),
+        0xffffff => Some(b"1 1 1 "),
+        _ => None,
+    };
+    if let Some(channels) = channels {
+        out.extend_from_slice(channels);
+    } else {
+        for shift in [16, 8, 0] {
+            milli(out, ((color >> shift) & 255) as i32 * 1000 / 255);
+            out.push(b' ');
+        }
     }
     out.extend_from_slice(op);
     out.push(b'\n');
@@ -90,6 +126,7 @@ fn hex(out: &mut Vec<u8>, color: u32) {
     }
 }
 
+#[inline(always)]
 fn ints(out: &mut Vec<u8>, values: &[i32], op: &[u8]) {
     for v in values {
         int(out, *v);
@@ -244,6 +281,59 @@ impl Engine {
         }
         let (o, l) = self.laid.colors[color as usize];
         color_value(&self.laid.color_bytes[o as usize..(o + l) as usize])
+    }
+
+    // Use final page glyph positions so wrapped links get one rectangle per line.
+    fn page_annotations(&self, start: usize, end: usize) -> Vec<Vec<u8>> {
+        if self.laid.links.is_empty() {
+            return Vec::new();
+        }
+        let mut rectangles: Vec<(u32, i32, i32, i32, i32, i32)> = Vec::new();
+        for item in &self.laid.items[start..end] {
+            let group = self.laid.groups[item.g as usize];
+            if group.link == 0 || item.kind != IT_GLYPH {
+                continue;
+            }
+            let glyph = self.glyph_metric(item.a as usize);
+            let left = item.x;
+            let right = left + sc(glyph.w as i32, group.scale);
+            let top = item.y - sc(glyph.h as i32, group.scale);
+            let bottom = item.y + sc(glyph.d as i32, group.scale);
+            if right <= left || bottom <= top {
+                continue;
+            }
+            if let Some(last) = rectangles.last_mut() {
+                if last.0 == group.link && last.5 == item.y && left >= last.1 && left - last.3 < 2000 {
+                    last.2 = last.2.min(top);
+                    last.3 = last.3.max(right);
+                    last.4 = last.4.max(bottom);
+                    continue;
+                }
+            }
+            rectangles.push((group.link, left, top, right, bottom, item.y));
+        }
+        let mut annotations = Vec::new();
+        for (link, left, top, right, bottom, _) in rectangles {
+            let Some(target) = self.laid.links.get(link as usize - 1) else {
+                continue;
+            };
+            let mut bytes = Vec::new();
+            let out = &mut bytes;
+            out.extend_from_slice(b"<< /Type /Annot /Subtype /Link /Border [0 0 0] /Rect [");
+            for coordinate in
+                [left * self.laid.pt, (self.laid.h - bottom) * self.laid.pt, right * self.laid.pt, (self.laid.h - top) * self.laid.pt]
+            {
+                milli(out, coordinate);
+                out.push(b' ');
+            }
+            out.extend_from_slice(b"] /A << /S /URI /URI <");
+            for &byte in target {
+                hex_code(out, byte as u32, 2);
+            }
+            out.extend_from_slice(b"> >> >>");
+            annotations.push(bytes);
+        }
+        annotations
     }
 
     fn page_stream(&self, b: &mut Vec<u8>, s: usize, e: usize, art: (usize, usize), forms: &[u32]) {
@@ -614,12 +704,21 @@ impl Engine {
             let end = self.laid.pages[p] as usize;
             let art_end = self.laid.art_pages[p] as usize;
             self.page_stream(body, start, end, (art_start, art_end), forms);
+            let page_start = start;
             start = end;
             art_start = art_end;
             let content = next;
             self.object(offsets, content);
             self.stream(b"", body, zip);
             next += 1;
+            let annotations = self.page_annotations(page_start, end);
+            let first_annotation = next;
+            for annotation in &annotations {
+                self.object(offsets, next);
+                self.out.extend_from_slice(annotation);
+                self.out.extend_from_slice(b"\nendobj\n");
+                next += 1;
+            }
             self.object(offsets, next);
             let (w, h) = (self.laid.w * self.laid.pt, self.laid.h * self.laid.pt);
             self.out.extend_from_slice(b"<< /Type /Page /Parent 2 0 R /Resources 3 0 R /MediaBox [0 0 ");
@@ -628,7 +727,16 @@ impl Engine {
             milli(&mut self.out, h);
             self.out.extend_from_slice(b"] /Contents ");
             int(&mut self.out, content as i32);
-            self.out.extend_from_slice(b" 0 R >>\nendobj\n");
+            self.out.extend_from_slice(b" 0 R");
+            if !annotations.is_empty() {
+                self.out.extend_from_slice(b" /Annots [");
+                for id in first_annotation..next {
+                    int(&mut self.out, id as i32);
+                    self.out.extend_from_slice(b" 0 R ");
+                }
+                self.out.push(b']');
+            }
+            self.out.extend_from_slice(b" >>\nendobj\n");
             kids.push(next);
             next += 1;
         }

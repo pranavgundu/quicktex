@@ -3,7 +3,7 @@ import type { EditorView } from '@codemirror/view'
 import { commandList, render } from '../../wasm-core/js/quicktex.js'
 import { packageLine, placeAt, type Place } from './scan'
 
-export type Option = Completion & { template: string; preview?: string; needs?: string }
+export type Option = Completion & { template: string; preview?: string; needs?: string; partial?: boolean }
 
 type Row = [label: string, template: string, where?: string]
 
@@ -19,6 +19,7 @@ const textGroup = 18
 const inText = 1
 const textOnly = 2
 const preloaded = new Set(['amsmath'])
+const partialPackages = new Set(['mhchem', 'siunitx'])
 const missingInText = new Set(['circledR', 'yen', 'checkmark', 'maltese'])
 
 const packageTemplates: Record<string, string> = {
@@ -274,7 +275,7 @@ function build(): Lists {
     if (!row) continue
     if (row[0] === '=') {
       current = row.slice(1)
-      packages.push(argumentOption(current))
+      packages.push({ ...argumentOption(current), detail: partialPackages.has(current) ? 'partial support' : undefined })
       continue
     }
     if (row[0] === '+') {
@@ -285,7 +286,11 @@ function build(): Lists {
     if (third === undefined) {
       const label = `\\${name}`
       const needs = preloaded.has(current) ? undefined : current
-      if (!math.has(label)) math.set(label, option(label, packageTemplates[name] ?? specTemplate(name, second), { detail: needs, needs }))
+      if (!math.has(label)) math.set(label, option(label, packageTemplates[name] ?? specTemplate(name, second), {
+        detail: partialPackages.has(current) ? `${needs} · partial support` : needs,
+        needs,
+        partial: partialPackages.has(current),
+      }))
       continue
     }
     const kind = Number(second)
@@ -316,6 +321,7 @@ const textWhere = new Map(textRows.map(([label, , where]) => [label, where]))
 function allowedText(label: string, place: Place) {
   const where = textWhere.get(label)
   const top = place.open[place.open.length - 1]
+  if (label === '\\label' && top === 'tabular') return false
   if (where === 'preamble') return place.preamble
   if (where === 'block') return !place.preamble && top !== 'tabular'
   if (where === 'body') return !place.preamble

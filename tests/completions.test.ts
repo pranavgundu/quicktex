@@ -32,7 +32,10 @@ function failures(options: Option[], wrap: (tex: string) => string) {
     if (entry.needs) doc = doc.replace('\\begin{document}', `\\usepackage{${entry.needs}}\n\\begin{document}`)
     try {
       renderDocument(doc)
-      if (documentWarnings().length) bad.push(`${entry.label}: ignored`)
+      const warnings = documentWarnings()
+      const unexpected = warnings.filter((at) => !(entry.partial && entry.needs && doc.slice(at).startsWith(entry.needs)))
+      if (unexpected.length) bad.push(`${entry.label}: ignored`)
+      if (entry.partial && !warnings.length) bad.push(`${entry.label}: missing partial-package warning`)
     } catch (error) {
       bad.push(`${entry.label}: ${(error as Error).message}`)
     }
@@ -82,6 +85,15 @@ describe('every suggestion compiles', () => {
     const plot = optionsFor('plot').filter((entry) => failures([{ ...entry, template: `\\addplot[${entry.template}] coordinates {(0,0) (1,1)};` }], inAxis).length)
     expect(axis.map((entry) => entry.label)).toEqual([])
     expect(plot.map((entry) => entry.label)).toEqual([])
+  })
+
+  test('partial package suggestions disclose their limits', () => {
+    const math = commandsFor(place({ math: true }))
+    for (const name of ['\\ce', '\\num']) {
+      const entry = math.find((option) => option.label === name)!
+      expect(entry.partial).toBe(true)
+      expect(entry.detail).toContain('partial support')
+    }
   })
 
   test('packages load', () => {
@@ -138,6 +150,7 @@ describe('suggestions fit the place', () => {
     expect(labels({ open: ['document'] })).not.toContain('\\hline')
     expect(labels({ open: ['document', 'tabular'] })).toContain('\\hline')
     expect(labels({ open: ['document', 'tabular'] })).not.toContain('\\section')
+    expect(labels({ open: ['document', 'tabular'] })).not.toContain('\\label')
     expect(labels({ math: true })).not.toContain('\\hline')
     expect(labels({ math: true, open: ['array'] })).toContain('\\hline')
   })

@@ -54,15 +54,20 @@ const svg = documentPage(0)
 const pdf = documentPdf()
 ```
 
-It handles `article`, `report`, `book`, `beamer` and `standalone` style documents: titles, abstracts, numbered sections, a table of contents, paragraphs, inline and displayed math, numbered equations, lists, quotes, centered text, theorems, verbatim blocks, footnotes, `\ref`, `\cite`, `\newenvironment`, one or two columns, page margins from `geometry`, `parskip`, tables with `booktabs` rules, `tabularx` and `tabular*` at full width, numbered figures, tables and algorithms with captions, `algorithmic` pseudocode, frames with overlays, accented letters, and drawings.
+It handles a subset of `article`, `report`, `book` and `standalone` style documents: titles, abstracts, numbered sections, a table of contents, paragraphs, inline and displayed math, numbered equations, lists, quotes, centered text, theorems, verbatim blocks, footnotes, `\ref`, `\cite`, `\newenvironment`, one or two columns, page margins from `geometry`, `parskip`, tables with `booktabs` rules, `tabularx` and `tabular*` at full width, numbered figures, tables and algorithms with captions, `algorithmic` pseudocode, frames with overlays, accented letters, and drawings.
 
 Drawings use a subset of TikZ and pgfplots: lines, curves, rectangles, circles, ellipses, arcs, arrow tips, nodes, named coordinates, `calc` points, scopes with scale, shift and rotate, styles, clipping, grids, `\foreach`, `\pgfmathsetmacro`, your own recursive macros with `\ifnum`, and `axis` plots with coordinates, functions, grids, legends and automatic ticks.
 
-Unknown commands, options and packages never stop a document. They are skipped, and the status bar names the first one with a count of the rest. Only real structural mistakes stop it: unbalanced braces, unclosed math, and mismatched `\begin` and `\end`.
+Unsupported commands, package options and document classes produce warnings; partially implemented packages also warn when loading them could otherwise imply full support. The status bar points to the first warning and counts the rest. Structural mistakes, invalid counters, excessive loops, and missing or invalid bibliography files can stop compilation. A warning-free render is not proof of TeX compatibility; compare important output with a TeX compiler.
 
 Documents now support:
 
-- Virtual project files for `\input`, `\include`, and PNG/JPEG `\includegraphics`, with aspect-ratio sizing and PNG transparency. Use **Add files** in the editor; importing `main.tex` or `document.tex` also opens it as the main source. Imported files live in the current tab and must be added again after a reload.
+- Virtual project files for `\input`, `\include`, `.bib` bibliographies, and PNG/JPEG `\includegraphics`, with aspect-ratio sizing and PNG transparency. Use **Add files** in the editor; importing `main.tex` or `document.tex` also opens it as the main source. Imported files live in the current tab and must be added again after a reload.
+- `.bib` references from `\bibliography` with numeric and common natbib author/year citations, citation notes and `\nocite`. The built-in formatter accepts `plain`, `unsrt`, `abbrv` and their `nat` variants; it does not execute arbitrary `.bst` files or Biber. Macro-generated citations and conditional resource discovery are limited and produce warnings.
+- Multi-page `longtable` output. Oversized `tabular` tables also preserve their rows across pages and warn about this fallback. Repeated longtable heads/feet and rows taller than a page warn.
+- Custom and built-in counters, `\arabic`, alphabetic/Roman forms, count registers, `\advance` and bounded `\loop ... \ifnum ... \repeat`. This remains a subset of TeX programming; loops are limited to 1,000 iterations per render and custom `\refstepcounter` label binding warns.
+- `fancyhdr` header/footer fields, odd/even selectors, `\pagestyle`, `\thispagestyle`, page numbers and header/footer rules. Automatic chapter/section marks and arbitrary page-style definitions remain unsupported.
+- Clickable external PDF links from `\href` and `\url`, with separate annotations for wrapped lines/pages. Internal hyperref destinations and bookmarks remain unsupported and warn.
 - Footnotes at the bottom of their column, with reserved space and a separator rule.
 - Word wrapping in `p{}`, `m{}`, `b{}`, and `X` table columns, including shrinking `X` columns to the requested table width.
 - Chinese, Japanese, Korean, Cyrillic, and Greek fallback outlines. `loadFontsFor(source)` loads the optional Noto assets; the editor and CLI do this automatically. Only glyphs used in the document enter its PDF. CJK uses Noto Serif CJK SC's shared ideograph forms; language-specific shaping and bold/italic fallback faces are not implemented.
@@ -110,9 +115,9 @@ bun run test
 
 Load a package with `\usepackage{...}` in the input, which lasts for that render, or with `usePackage(name)`, which lasts until the page closes.
 
-Implemented: `amsmath`, `mathtools`, `physics`, `braket`, `cancel`, `mhchem`, `chemformula`, `siunitx`, `nicefrac`, `xfrac`, `gensymb`, `commath`, `derivative`, `diffcoeff`, `units`, `dsfont`, `bbm`, `bbold`, `centernot`, `slashed`, `faktor`, `interval`, `stmaryrd`.
+Package subsets: `amsmath`, `mathtools`, `physics`, `braket`, `cancel`, `mhchem`, `chemformula`, `siunitx`, `nicefrac`, `xfrac`, `gensymb`, `commath`, `derivative`, `diffcoeff`, `units`, `dsfont`, `bbm`, `bbold`, `centernot`, `slashed`, `faktor`, `interval`, `stmaryrd`.
 
-Preamble packages such as `hyperref` and `inputenc` are accepted and ignored. In full documents, `geometry`, `parskip`, `tikz` and `pgfplots` take effect, and any other package is ignored. In a single formula, an unrecognized package is an `unknown package` error.
+Full documents implement selected features from `geometry`, `parskip`, `tikz`, `pgfplots`, `fancyhdr` and `natbib`. Geometry currently supports margin options; other geometry options warn. Unknown packages and packages whose fonts or layout are not implemented warn. Package acceptance does not mean that all its commands, options or TeX macros work. In a single formula, an unrecognized package is an `unknown package` error.
 
 Your own commands work too: `\newcommand`, `\renewcommand`, `\providecommand`, `\def`, `\NewDocumentCommand`, `\DeclareMathOperator`, `\DeclarePairedDelimiter` and `\definecolor`.
 

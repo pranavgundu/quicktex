@@ -3,6 +3,7 @@ use alloc::{format, sync::Arc};
 
 #[derive(Default)]
 pub(super) struct Assets {
+    pub(super) bibliography: super::bibliography::Bibliography,
     pub(super) files: Vec<(Vec<u8>, Vec<u8>)>,
     pub(super) active: Vec<Vec<u8>>,
 }

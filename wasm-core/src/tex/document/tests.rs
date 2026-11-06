@@ -1,9 +1,11 @@
 use super::*;
 use crate::tex::tests::{Rng, feed, mutate, output, well_formed};
 
+mod bibliography;
 mod compat;
 mod drawing;
 mod floats;
+mod headers;
 mod improvements;
 mod layout;
 mod output_pdf;
@@ -133,3 +135,5 @@ impl Done {
         self.items(page).iter().map(|i| i.y).max().unwrap()
     }
 }
+
+mod counters;

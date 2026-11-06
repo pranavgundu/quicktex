@@ -340,20 +340,21 @@ fn a_plain_group_at_a_paragraph_start_stays_in_the_paragraph() {
 }
 
 #[test]
-fn beamer_overlays_are_dropped() {
-    let d = clean_body("\\only<2>{a}\\uncover<3->{b}\\alert<4>{c}\\onslide<2> d\\pause");
+fn beamer_overlays_warn_and_preserve_visible_text() {
+    let d = body("\\only<2>{a}\\uncover<3->{b}\\alert<4>{c}\\onslide<2> d\\pause");
     assert_eq!(d.glyphs(), 4);
+    assert!(!d.e.warned.is_empty());
 }
 
 #[test]
 fn frames_may_use_command_form() {
-    let d = clean("\\documentclass{beamer}\\begin{document}\\frame{a}\\frame[plain]{b}\\end{document}");
+    let d = good("\\documentclass{beamer}\\begin{document}\\frame{a}\\frame[plain]{b}\\end{document}");
     assert_eq!(d.pages, 2);
 }
 
 #[test]
 fn frame_environments_take_overlays() {
-    let d = clean("\\documentclass{beamer}\\begin{document}\\begin{frame}<1>[plain]{T}x\\end{frame}\\end{document}");
+    let d = good("\\documentclass{beamer}\\begin{document}\\begin{frame}<1>[plain]{T}x\\end{frame}\\end{document}");
     assert_eq!(d.pages, 1);
     assert_eq!(d.glyphs(), 1);
 }
@@ -499,8 +500,10 @@ fn a_caption_outside_a_float_only_warns() {
 }
 
 #[test]
-fn metadata_commands_are_quiet() {
-    clean_body("\\subtitle{a}\\institute{b}\\subject{c}\\titlegraphic{d}x");
+fn ignored_metadata_warns_and_preserves_body() {
+    let d = body("\\subtitle{a}\\institute{b}\\subject{c}\\titlegraphic{d}x");
+    assert_eq!(d.e.warned.len(), 4);
+    assert_eq!(d.glyphs(), 1);
 }
 
 #[test]
@@ -527,6 +530,8 @@ fn citations_number_in_bibliography_order() {
     let s = "\\cite{b}\\begin{thebibliography}{9}\\bibitem{a}A\\bibitem{b}B\\end{thebibliography}";
     let d = clean_body(s);
     assert_eq!(d.glyphs(), "[2]".len() + "References".len() + "[1]A".len() + "[2]B".len());
+    let prefix: Vec<_> = d.all_items().iter().filter(|item| item.kind == IT_GLYPH).take(3).map(|item| item.a).collect();
+    assert_eq!(prefix, "[2]".chars().map(|ch| glyph_id(0, ch as u32).unwrap() as i32).collect::<Vec<_>>());
 }
 
 #[test]

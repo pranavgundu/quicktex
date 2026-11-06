@@ -177,3 +177,87 @@ fn page_size_scales_with_the_font_option() {
     let t = pdf_of("\\documentclass[12pt]{article}\\begin{document}x\\end{document}").text();
     assert!(t.contains("612") && t.contains("792"));
 }
+
+#[test]
+fn href_and_url_create_pdf_link_annotations() {
+    let p = pdf_of(
+        r"\documentclass{article}\begin{document}\href{https://example.com/a(b)}{A styled \textbf{link}} and \url{https://example.org}\end{document}",
+    );
+    let text = p.text();
+    assert!(text.contains("/Subtype /Link"));
+    assert!(text.contains("/URI <68747470733A2F2F6578616D706C652E636F6D2F61286229>"));
+    assert!(text.contains("/URI <68747470733A2F2F6578616D706C652E6F7267>"));
+    assert!(text.contains("/Border [0 0 0] /Rect ["));
+}
+
+#[test]
+fn wrapped_links_get_rectangles_on_each_line_and_page() {
+    let words = "linked words ".repeat(150);
+    let source = format!(
+        r"\documentclass{{article}}\usepackage[left=220pt,right=220pt,top=330pt,bottom=330pt]{{geometry}}\begin{{document}}\href{{https://example.com}}{{{words}}}\end{{document}}"
+    );
+    let mut d = good(&source);
+    assert!(d.pages > 1);
+    let page_count = d.pages;
+    let text = String::from_utf8_lossy(&d.pdf()).into_owned();
+    assert_eq!(text.matches("/Annots [").count(), page_count);
+    assert!(text.matches("/Subtype /Link").count() > page_count);
+    for rect in text.split("/Rect [").skip(1) {
+        let rect = rect.split(']').next().unwrap();
+        let coords: Vec<f64> = rect.split_whitespace().map(|s| s.parse().unwrap()).collect();
+        assert_eq!(coords.len(), 4);
+        assert!(coords[0] >= 0. && coords[0] < coords[2] && coords[2] <= 612.);
+        assert!(coords[1] >= 0. && coords[1] < coords[3] && coords[3] <= 792.);
+    }
+}
+
+#[test]
+fn nolinkurl_and_plain_text_create_no_annotations() {
+    let p = pdf_of(r"\documentclass{article}\begin{document}\nolinkurl{https://example.com} plain text\end{document}");
+    assert!(!p.text().contains("/Annots"));
+}
+
+#[test]
+fn pdf_links_escape_tex_uri_characters_and_encode_unicode() {
+    let p = pdf_of(r"\documentclass{article}\begin{document}\href{https://example.com/café?x=1\&y=2\#part}{linked} plain\end{document}");
+    let text = p.text();
+    let uri = "https://example.com/caf%C3%A9?x=1&y=2#part";
+    let hex: String = uri.bytes().map(|b| format!("{b:02X}")).collect();
+    assert!(text.contains(&format!("/URI <{hex}>")));
+    assert!(text.contains("/Annots ["));
+    let annotations = text.split("/Annots [").nth(1).unwrap().split(']').next().unwrap();
+    assert!(!annotations.contains("<<"), "annotation dictionaries must be indirect");
+    let d = good(r"\documentclass{article}\begin{document}\href{https://example.com}{linked} plain\end{document}");
+    let glyph_links: Vec<u32> = d.raw_items(0).iter().filter(|i| i.kind == IT_GLYPH).map(|i| d.laid().groups[i.g as usize].link).collect();
+    assert!(glyph_links[..6].iter().all(|id| *id != 0));
+    assert!(glyph_links[6..].iter().all(|id| *id == 0));
+}
+
+#[test]
+fn pdf_integer_writer_preserves_decimal_boundaries_and_extremes() {
+    let mut values = vec![i32::MIN, i32::MIN + 1, i32::MAX - 1, i32::MAX];
+    let mut power = 1i32;
+    for _ in 0..10 {
+        for delta in -1..=1 {
+            if let Some(value) = power.checked_add(delta) {
+                values.push(value);
+                values.push(-value);
+            }
+        }
+        if let Some(next) = power.checked_mul(10) {
+            power = next;
+        }
+    }
+    // Every low digit pair, including interior zeros and transitions between
+    // one- and two-digit chunks, must retain exactly the original PDF bytes.
+    values.extend(-10_000..=10_000);
+    let mut random = Rng(0xd28e_4a71_95fb_6043);
+    values.extend((0..10_000).map(|_| random.next() as i32));
+    let mut actual = Vec::new();
+    for value in values {
+        actual.clear();
+        actual.extend_from_slice(b"prefix ");
+        crate::tex::pdf::int(&mut actual, value);
+        assert_eq!(actual, format!("prefix {value}").as_bytes(), "{value}");
+    }
+}

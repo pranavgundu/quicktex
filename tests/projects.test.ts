@@ -90,3 +90,58 @@ describe('project files and PDF text', () => {
     expect(documentPdf()).toEqual(before)
   })
 })
+
+const bibliography = String.raw`@string{press = "A Press"}
+@article{doe, author={Jane Doe and John Roe}, title={A {Nested} Title}, journal={A Journal}, year=2024}
+@book{smith, author={Alice Smith}, title={The Book}, publisher=press, year=2023}`
+
+describe('bibliography project assets', () => {
+  test('numeric natbib citations and a single references heading reach the PDF', () => {
+    renderDocument(String.raw`\documentclass{article}\usepackage[numbers]{natbib}\begin{document}
+\citet{doe}. \citep[see][p.~4]{smith,doe}. \citeauthor*{doe}; \citeyear{smith}.
+\bibliographystyle{plainnat}\bibliography{refs}\end{document}`, { files: { 'refs.bib': bibliography } })
+    expect(documentWarnings()).toEqual([])
+    const text = extracted(documentPdf())
+    expect(text).toContain('Doe and Roe [1]')
+    expect(text).toContain('[see 2, 1, p. 4]')
+    expect(text).toContain('Doe and Roe; 2023')
+    expect(text).toContain('A Nested Title')
+    expect(text).toContain('A Press')
+    expect(text.match(/References/g)).toHaveLength(1)
+  })
+
+  test('author-year natbib citations support notes and bare forms', () => {
+    renderDocument(String.raw`\documentclass{article}\usepackage{natbib}\begin{document}
+\citet{doe}; \citep[see][p.~4]{smith}; \citealp{doe}; \citeyearpar{smith}.
+\bibliographystyle{plainnat}\bibliography{refs}\end{document}`, { files: { 'refs.bib': bibliography } })
+    expect(documentWarnings()).toEqual([])
+    const text = extracted(documentPdf())
+    expect(text).toContain('Doe and Roe (2024)')
+    expect(text).toContain('(see Smith, 2023, p. 4)')
+    expect(text).toContain('Doe and Roe, 2024')
+    expect(text).toContain('(2023)')
+  })
+
+  test('nested bibliography resources and nocite include uncited entries', () => {
+    renderDocument(article(String.raw`\input{chapter}`), { files: {
+      'chapter.tex': String.raw`\cite{doe}\nocite{*}\bibliographystyle{unsrt}\bibliography{data/refs}`,
+      'data/refs.bib': bibliography,
+    } })
+    expect(documentWarnings()).toEqual([])
+    const text = extracted(documentPdf())
+    expect(text).toContain('A Nested Title')
+    expect(text).toContain('The Book')
+  })
+
+  test('missing resources and unsupported styles identify the cause', () => {
+    expect(() => renderDocument(article(String.raw`\bibliography{missing}`))).toThrow("bibliography file 'missing' was not found")
+    expect(() => renderDocument(article(String.raw`\bibliographystyle{custom}`))).toThrow("unsupported bibliography style 'custom'")
+    expect(() => renderDocument(article(String.raw`\bibliography{bad}`), { files: { 'bad.bib': '@article{broken, title={unclosed}' } })).toThrow("invalid bibliography 'bad.bib'")
+  })
+
+  test('missing citation keys produce a visible placeholder and warning', () => {
+    renderDocument(article(String.raw`\cite{absent,doe}\bibliography{refs}`), { files: { 'refs.bib': bibliography } })
+    expect(documentWarnings().length).toBeGreaterThan(0)
+    expect(extracted(documentPdf())).toContain('[??, 1]')
+  })
+})

@@ -8,6 +8,8 @@ crate-type = ["cdylib"]
 doctest = false
 
 [profile.release]
+# Bound delivery size; hot PDF loops use explicit inline hints.
+opt-level = 2
 lto = "fat"
 codegen-units = 1
 panic = "abort"

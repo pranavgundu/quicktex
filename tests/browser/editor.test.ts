@@ -62,7 +62,9 @@ describe('editor', () => {
   test('status shows layout and pdf time', async () => {
     await open(lab)
     await s.page.waitForTimeout(300)
-    expect(await status()).toMatch(/^2 pages, \d+ words, [\d.]+ (µs|ms), PDF [\d.]+ (µs|ms)$/)
+    const text = await status()
+    expect(text.split('\n')[0]).toMatch(/^2 pages, \d+ words, [\d.]+ (µs|ms), PDF [\d.]+ (µs|ms)$/)
+    expect(text).toContain('Compatibility warning: \\textfloatsep on line 17')
   })
 
   test('the first page holds drawings and turned text', async () => {
@@ -119,7 +121,7 @@ describe('editor', () => {
     await s.page.reload()
     await s.page.waitForSelector('.cm-content')
     await s.page.waitForTimeout(200)
-    expect(await status()).toContain('Ignored \\nope on line 3')
+    expect(await status()).toContain('Compatibility warning: \\nope on line 3')
   })
 
   test('fixing a mistake brings the pages back', async () => {

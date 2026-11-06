@@ -124,6 +124,9 @@ impl Engine {
                 }
                 b"addlinespace" | b"endhead" | b"endfirsthead" | b"endfoot" | b"endlastfoot" | b"rowcolor" | b"noalign" | b"hhline"
                 | b"rowcolors" | b"caption" | b"label" => {
+                    // Repeated longtable heads/feet and these table decorations
+                    // are not implemented; make the approximation visible.
+                    self.note(start);
                     self.skip_loose();
                     self.skip_ws();
                 }
@@ -164,6 +167,7 @@ impl Engine {
     }
 
     pub(super) fn table_block(&mut self, d: &mut Doc, left: i32, width: i32, name: &[u8]) -> R<()> {
+        let source = self.pos;
         self.skip_ws();
         if self.peek() == b'[' {
             self.bracketed()?;
@@ -177,7 +181,9 @@ impl Engine {
         rows.clear();
         let done = self.table_rows(d, &c, count, &mut cells, &mut rows, name);
         let stretch = (target, flexible, fill, fixed);
-        let placed = done.and_then(|()| self.table_place(d, &c, left, width, &aligns, count, lines, stretch, &mut cells, &mut rows));
+        let multipage = matches!(name, b"longtable" | b"longtable*" | b"xltabular" | b"supertabular");
+        let placed = done
+            .and_then(|()| self.table_place(d, &c, left, width, &aligns, count, lines, stretch, &mut cells, &mut rows, multipage, source));
         self.store.cells = cells;
         self.store.rows = rows;
         placed
@@ -222,6 +228,8 @@ impl Engine {
                     h = h.max(b.h);
                     dep = dep.max(b.d);
                     cells.push((b, row, column as u16, words));
+                } else {
+                    self.note(self.pos);
                 }
                 column += 1;
                 if self.peek() == b'&' {
@@ -251,6 +259,8 @@ impl Engine {
         stretch: (i32, u64, bool, [i32; MAX_COLUMNS]),
         cells: &mut [(Bx, u16, u16, Vec<Word>)],
         rows: &mut [TableRow],
+        multipage: bool,
+        source: usize,
     ) -> R<()> {
         let mut widths = [0i32; MAX_COLUMNS];
         for (b, _, column, _) in cells.iter() {
@@ -339,6 +349,22 @@ impl Engine {
             RULE_PLAIN => (PLAIN_RULE, 0, 0),
             _ => (0, 0, 0),
         };
+        let total_h: i32 = rows
+            .iter()
+            .enumerate()
+            .map(|(index, row)| {
+                let (thick, above, below) = rule_of(row.rule);
+                row.h + row.d + thick + below + if index == 0 { 0 } else { above }
+            })
+            .sum();
+        if multipage || total_h > d.text_h - d.note_h - d.bottom_h {
+            // tabular is normally an indivisible box. Preserve its content when
+            // that box cannot fit even on an empty page, and report the fallback.
+            if !multipage {
+                self.note(source);
+            }
+            return self.table_pages(d, c, left, width, aligns, count, lines, &widths, &starts, total_w, cells, rows, source);
+        }
         let mut y = 0;
         let mut at = 0;
         let mut first_base = None;
@@ -387,6 +413,106 @@ impl Engine {
         Ok(())
     }
 
+    fn table_pages(
+        &mut self,
+        d: &mut Doc,
+        c: &Ctx,
+        left: i32,
+        width: i32,
+        aligns: &[u8; MAX_COLUMNS],
+        count: usize,
+        lines: u64,
+        widths: &[i32; MAX_COLUMNS],
+        starts: &[i32; MAX_COLUMNS + 1],
+        total_w: i32,
+        cells: &[(Bx, u16, u16, Vec<Word>)],
+        rows: &[TableRow],
+        source: usize,
+    ) -> R<()> {
+        let rule_of = |kind: u8| match kind {
+            RULE_HEAVY => (sc(HEAVY_RULE, c.scale), sc(ABOVE_RULE, c.scale), sc(BELOW_RULE, c.scale)),
+            RULE_LIGHT => (sc(LIGHT_RULE, c.scale), sc(ABOVE_RULE, c.scale), sc(BELOW_RULE, c.scale)),
+            RULE_PLAIN => (PLAIN_RULE, 0, 0),
+            _ => (0, 0, 0),
+        };
+        let mut first = 0;
+        let mut at = 0;
+        let mut labelled = false;
+        while first < rows.len() {
+            let mut end = first;
+            let mut height = 0;
+            while end < rows.len() {
+                let row = rows[end];
+                let (thick, above, below) = rule_of(row.rule);
+                let next = height + row.h + row.d + thick + below + if end == first { 0 } else { above };
+                let bottom = if d.fresh { next.max(d.topskip) } else { d.base + d.baseline.max(d.dep + next + LINESKIP) + d.skip };
+                if bottom > d.text_h - d.note_h - d.bottom_h {
+                    break;
+                }
+                height = next;
+                end += 1;
+            }
+            if end == first && !d.fresh {
+                self.new_page(d)?;
+                continue;
+            }
+            if end == first {
+                // A single row is indivisible; retain it and warn if it exceeds
+                // the page rather than silently discarding subsequent rows.
+                self.note(source);
+                let row = rows[first];
+                let (thick, _, below) = rule_of(row.rule);
+                height = row.h + row.d + thick + below;
+                end += 1;
+            }
+            let base = self.place_line(d, height, 0);
+            let top = base - height;
+            let x = left + if d.center { ((width - total_w) / 2).max(0) } else { 0 };
+            let mut y = 0;
+            for index in first..end {
+                let row = rows[index];
+                if row.rule != RULE_NONE {
+                    let (thick, above, below) = rule_of(row.rule);
+                    y += if index == first { 0 } else { above };
+                    let mark = self.end();
+                    self.push_rule(c, 0, y, total_w, thick);
+                    self.commit(d, mark, self.end(), x, top);
+                    y += thick + below;
+                }
+                let row_base = y + row.h;
+                while at < cells.len() && cells[at].1 as usize == index {
+                    let (b, _, column, _) = &cells[at];
+                    let col = *column as usize;
+                    let room = widths[col] - b.w;
+                    let offset = match aligns[col] {
+                        b'c' => room / 2,
+                        b'r' => room,
+                        _ => 0,
+                    };
+                    self.commit(d, b.s, b.e, x + starts[col] + d.table_gap + offset, top + row_base);
+                    if !labelled {
+                        self.place_label(d, left, top + row_base);
+                        labelled = true;
+                    }
+                    at += 1;
+                }
+                y = row_base + row.d;
+            }
+            for col in 0..=count {
+                if lines & (1 << col) != 0 {
+                    let mark = self.end();
+                    self.push_rule(c, starts[col], 0, PLAIN_RULE, height);
+                    self.commit(d, mark, self.end(), x, top);
+                }
+            }
+            first = end;
+            if first < rows.len() {
+                self.new_page(d)?;
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn caption(&mut self, d: &mut Doc, left: i32, width: i32) -> R<()> {
         if d.float == 0 {
             self.note(self.pos);
@@ -403,13 +529,13 @@ impl Engine {
         }
         let c = self.sized(d, UNIT);
         let (word, number): (&[u8], u32) = if d.float == 1 {
-            d.figures += 1;
+            d.figures = self.increment_counter(b"figure")?.max(0) as u32;
             (b"Figure", d.figures)
         } else if d.float == 3 {
             d.algorithms += 1;
             (b"Algorithm", d.algorithms)
         } else {
-            d.tables += 1;
+            d.tables = self.increment_counter(b"table")?.max(0) as u32;
             (b"Table", d.tables)
         };
         for ch in word {

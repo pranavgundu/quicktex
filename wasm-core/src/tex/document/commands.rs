@@ -332,6 +332,27 @@ pub(super) fn silent_setting(name: &[u8]) -> bool {
     )
 }
 
+fn link_uri(text: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < text.len() {
+        let mut byte = text[i];
+        if byte == b'\\' && text.get(i + 1).is_some_and(|b| b"#%&_{}$\\".contains(b)) {
+            i += 1;
+            byte = text[i];
+        }
+        if !(33..=126).contains(&byte) {
+            out.push(b'%');
+            out.push(b"0123456789ABCDEF"[(byte >> 4) as usize]);
+            out.push(b"0123456789ABCDEF"[(byte & 15) as usize]);
+        } else {
+            out.push(byte);
+        }
+        i += 1;
+    }
+    out
+}
+
 impl Engine {
     #[inline(always)]
     pub(super) fn set_marker_number(&mut self, n: u32) {
@@ -421,6 +442,7 @@ impl Engine {
                 self.put_text(d, c, font, &text)?;
                 continue;
             }
+            self.unresolved = true;
             let n = match self.cites.iter().position(|known| known.as_slice() == key) {
                 Some(i) => i,
                 None => {
@@ -431,6 +453,16 @@ impl Engine {
             self.put_number(d, c, font, n as u32 + 1)?;
         }
         self.put_char(d, c, font, b']' as u32)
+    }
+
+    pub(super) fn warn_missing_citations(&mut self) {
+        for index in 0..self.cites.len() {
+            let mut tagged = b"cite:".to_vec();
+            tagged.extend_from_slice(&self.cites[index]);
+            if self.find_label(&tagged).is_none() {
+                self.note(0);
+            }
+        }
     }
 
     fn put_raw(&mut self, d: &mut Doc, c: &Ctx, text: &[u8]) -> R<()> {
@@ -465,7 +497,7 @@ impl Engine {
                 b"width" => w = size,
                 b"height" => h = size,
                 b"scale" => factor = size.max(0.0),
-                _ => {}
+                _ => self.note_slice(key),
             }
         }
         if let Some(mut image) = image {
@@ -739,6 +771,9 @@ impl Engine {
     }
 
     pub(super) fn text_command(&mut self, d: &mut Doc, c: &mut Ctx, font: &mut u8, name: &'static [u8], tok: usize) -> R<bool> {
+        if self.page_setting(d, name)? {
+            return Ok(true);
+        }
         if name.len() == 1 {
             if let Some(accent) = accent_of(name[0]) {
                 self.accented(d, c, *font, accent)?;
@@ -761,10 +796,16 @@ impl Engine {
             b"footnotemark" | b"footnotetext" | b"protect" | b"strut" | b"leavevmode" | b"ignorespaces" | b"unskip" | b"null" | b"hfil"
             | b"nobreakspace" | b"sloppy" | b"noindent" | b"indent" | b"par" | b"centering" | b"raggedright" | b"raggedleft"
             | b"bigskip" | b"medskip" | b"smallskip" | b"vspace" | b"pagebreak" | b"newpage" | b"clearpage" | b"index" => {
+                if matches!(name, b"index" | b"footnotemark" | b"footnotetext") {
+                    self.note(tok);
+                }
                 self.skip_arguments()
             }
             b"hfill" | b"dotfill" | b"hrulefill" | b"qquad" => self.add_kern(d, sc(2000, c.scale)),
             b"ref" | b"pageref" | b"autoref" | b"nameref" | b"cref" | b"Cref" | b"vref" | b"subref" => {
+                if name != b"ref" {
+                    self.note(tok);
+                }
                 self.skip_star();
                 let key = self.loose_argument();
                 self.put_reference(d, c, *font, key)?;
@@ -775,23 +816,47 @@ impl Engine {
                 self.put_reference(d, c, *font, key)?;
                 self.put_char(d, c, *font, b')' as u32)?;
             }
-            b"cite" | b"citep" | b"citet" | b"parencite" | b"textcite" | b"autocite" | b"citeauthor" | b"citeyear" | b"footcite"
-            | b"Cite" | b"Citep" | b"Citet" => {
+            b"cite" | b"citep" | b"citet" | b"citealt" | b"citealp" | b"parencite" | b"textcite" | b"autocite" | b"citeauthor"
+            | b"citeyear" | b"citeyearpar" | b"footcite" | b"Cite" | b"Citep" | b"Citet" => {
+                self.skip_ws();
+                let full = self.peek() == b'*';
                 self.skip_star();
                 self.skip_ws();
-                self.skip_options();
+                let first = if self.peek() == b'[' { self.bracketed()? } else { b"" };
+                self.skip_ws();
+                let (pre, post) = if self.peek() == b'[' { (first, self.bracketed()?) } else { (b"".as_slice(), first) };
                 let keys = self.loose_argument();
-                self.put_citation(d, c, *font, keys)?;
+                if let Some((text, missing)) = self.assets.bibliography.citation(name, keys, full, pre, post) {
+                    if missing {
+                        self.note(self.pos);
+                    }
+                    self.put_template(d, c, *font, &text)?;
+                } else {
+                    self.put_citation(d, c, *font, keys)?;
+                }
             }
             b"url" | b"nolinkurl" | b"path" => {
                 let text = self.loose_argument();
-                self.put_raw(d, c, text)?;
+                let previous = self.active_link;
+                if name == b"url" {
+                    self.doc.links.push(link_uri(text));
+                    self.active_link = self.doc.links.len() as u32;
+                }
+                let result = self.put_raw(d, c, text);
+                self.active_link = previous;
+                result?;
             }
             b"href" => {
-                self.loose_argument();
-                self.styled_group(d, c, *font)?;
+                let target = self.loose_argument();
+                self.doc.links.push(link_uri(target));
+                let previous = self.active_link;
+                self.active_link = self.doc.links.len() as u32;
+                let result = self.styled_group(d, c, *font);
+                self.active_link = previous;
+                result?;
             }
             b"hyperref" | b"hyperlink" | b"hypertarget" => {
+                self.note(self.pos);
                 self.skip_options();
                 if name != b"hyperref" {
                     self.loose_argument();
@@ -950,13 +1015,20 @@ impl Engine {
                 self.put_number(d, c, *font, page)?;
             }
             b"and" | b"AND" => self.flush_word(d, true),
-            _ if silent_setting(name) => self.skip_arguments(),
+            _ if silent_setting(name) => {
+                self.note(tok);
+                self.skip_arguments();
+            }
             _ => return Ok(false),
         }
         Ok(true)
     }
 
     pub(super) fn verbatim_block(&mut self, d: &mut Doc, left: i32, width: i32, name: &'static [u8]) -> R<()> {
+        self.skip_ws();
+        if self.peek() == b'[' {
+            self.note(self.pos);
+        }
         self.skip_options();
         if self.peek() == b'{' {
             self.skip_arguments();

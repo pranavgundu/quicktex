@@ -85,7 +85,7 @@ impl Engine {
         self.skip_options();
     }
 
-    pub(super) fn splice(&mut self, body: &[u8]) -> R<()> {
+    pub(in crate::tex) fn splice(&mut self, body: &[u8]) -> R<()> {
         let rest = self.slice(self.pos, self.len);
         self.spliced += body.len() + rest.len();
         if self.spliced > MAX_SPLICED {
@@ -159,6 +159,11 @@ impl Engine {
 
     pub(in crate::tex) fn skip_options(&mut self) {
         while self.peek() == b'[' {
+            // Implemented options are parsed by their command handlers. Reaching
+            // this fallback means the option was discarded, so report it.
+            if self.lenient {
+                self.note(self.pos);
+            }
             self.skip_pair(b'[', b']');
         }
     }

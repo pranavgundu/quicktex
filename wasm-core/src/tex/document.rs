@@ -8,6 +8,7 @@ mod figure;
 mod tests;
 
 mod float;
+mod header;
 mod hyphen;
 mod legacy;
 mod plot;
@@ -126,6 +127,7 @@ pub(super) struct Store {
 
 #[derive(Default)]
 pub(crate) struct Laid {
+    pub(super) links: Vec<Vec<u8>>,
     pub(super) items: Vec<Item>,
     pub(super) pages: Vec<u32>,
     pub(super) art: Vec<Art>,
@@ -175,6 +177,11 @@ struct Doc {
     step_level: i32,
     skip: i32,
     page: u32,
+    page_style: u8,
+    this_page_style: Option<u8>,
+    page_fields: [[[&'static [u8]; 3]; 2]; 2],
+    head_sep: i32,
+    foot_skip: i32,
     noindent: bool,
     center: bool,
     sections: [u32; 3],
@@ -310,6 +317,11 @@ fn ends_paragraph(name: &[u8]) -> bool {
             | b"author"
             | b"date"
             | b"bibitem"
+            | b"bibliography"
+            | b"bibliographystyle"
+            | b"printbibliography"
+            | b"nocite"
+            | b"addbibresource"
             | b"tableofcontents"
             | b"frame"
             | b"newcommand"
@@ -351,6 +363,16 @@ fn contains(text: &[u8], part: &[u8]) -> bool {
 
 impl Engine {
     pub fn render_document(&mut self, len: usize) -> i32 {
+        let source = unsafe { core::slice::from_raw_parts(self.input.as_ptr(), len) };
+        match super::bibliography::Bibliography::prepare(source, &self.assets.files) {
+            Ok(bibliography) => self.assets.bibliography = bibliography,
+            Err((message, at)) => {
+                self.out.clear();
+                self.out.extend_from_slice(&message);
+                self.err_pos = at;
+                return -(self.out.len() as i32);
+            }
+        }
         self.labels.clear();
         self.label_bytes.clear();
         self.cites.clear();
@@ -361,15 +383,25 @@ impl Engine {
         self.unresolved = false;
         let first = self.layout_document(len);
         if !self.unresolved || first < 0 {
+            if first >= 0 {
+                self.warn_missing_citations();
+            }
             return first;
         }
         self.next_pass();
         let second = self.layout_document(len);
         if !self.store.wanted || second < 0 || self.store.contents == self.store.shown {
+            if second >= 0 {
+                self.warn_missing_citations();
+            }
             return second;
         }
         self.next_pass();
-        self.layout_document(len)
+        let final_pass = self.layout_document(len);
+        if final_pass >= 0 {
+            self.warn_missing_citations();
+        }
+        final_pass
     }
 
     fn next_pass(&mut self) {
@@ -380,11 +412,16 @@ impl Engine {
 
     fn layout_document(&mut self, len: usize) -> i32 {
         self.reset(len);
+        self.initialize_counters();
+        if self.assets.bibliography.uncertain() {
+            self.note(0);
+        }
         self.lenient = true;
         self.mark = (0, [0; 3]);
         self.spliced = 0;
         self.words.clear();
         self.doc.items.clear();
+        self.doc.links.clear();
         self.doc.pages.clear();
         self.doc.art.clear();
         self.doc.segs.clear();
@@ -430,6 +467,11 @@ impl Engine {
             step_level: 0,
             skip: 0,
             page: 1,
+            page_style: 1,
+            this_page_style: None,
+            page_fields: [[[b"", b"", b""], [b"", b"\\thepage", b""]]; 2],
+            head_sep: 2500,
+            foot_skip: 3000,
             noindent: false,
             center: false,
             sections: [0; 3],
@@ -466,7 +508,7 @@ impl Engine {
         match done.and_then(|()| {
             self.finish_page(&mut d)?;
             while !self.store.held.is_empty() || !self.store.deferred.is_empty() {
-                d.page += 1;
+                d.page = self.increment_counter(b"page")?.max(0) as u32;
                 d.column = 0;
                 self.fit_frame(&mut d);
                 self.place_held(&mut d);
@@ -564,7 +606,25 @@ impl Engine {
         let mut at = 0;
         let (mut left, mut right, mut top, mut bottom) = (None, None, None, None);
         while let Some((key, value)) = figure::next_option(options, &mut at) {
+            if !matches!(
+                key,
+                b"margin"
+                    | b"hmargin"
+                    | b"vmargin"
+                    | b"left"
+                    | b"lmargin"
+                    | b"right"
+                    | b"rmargin"
+                    | b"top"
+                    | b"tmargin"
+                    | b"bottom"
+                    | b"bmargin"
+            ) {
+                self.note_slice(key);
+                continue;
+            }
             let Some(v) = figure::length_pt(value) else {
+                self.note_slice(key);
                 continue;
             };
             let v = Some(self.pt_units(v));
@@ -604,6 +664,7 @@ impl Engine {
         let names = self.group_text()?;
         for part in names.split(|b| *b == b',') {
             let name = part.trim_ascii();
+            self.package_diagnostics(name, options);
             match name {
                 b"" | b"tikz" | b"pgfplots" => {}
                 b"geometry" => self.set_margins(d, options),
@@ -621,10 +682,68 @@ impl Engine {
         Ok(())
     }
 
+    // Loading a package is not proof that its layout or options are implemented.
+    fn package_diagnostics(&mut self, name: &[u8], options: &'static [u8]) {
+        let partial = matches!(
+            name,
+            b"babel"
+                | b"microtype"
+                | b"etoolbox"
+                | b"subcaption"
+                | b"mathptmx"
+                | b"newtxmath"
+                | b"lmodern"
+                | b"hyperref"
+                | b"mhchem"
+                | b"siunitx"
+                | b"listings"
+                | b"tcolorbox"
+        );
+        let built_in = matches!(
+            name,
+            b"tikz"
+                | b"pgfplots"
+                | b"parskip"
+                | b"longtable"
+                | b"tabularx"
+                | b"tabulary"
+                | b"supertabular"
+                | b"xltabular"
+                | b"listings"
+                | b"tcolorbox"
+                | b"fancyhdr"
+                | b"natbib"
+        );
+        if partial || (!built_in && !crate::packages::is_noop(name) && crate::packages::find_package(name).is_none() && !name.is_empty()) {
+            self.note_slice(name);
+        }
+        if name == b"geometry" {
+            return;
+        } // set_margins diagnoses each ignored key.
+        let mut at = 0;
+        while let Some((key, _)) = figure::next_option(options, &mut at) {
+            let supported = match name {
+                b"inputenc" => key == b"utf8",
+                b"fontenc" => key == b"T1",
+                b"natbib" => matches!(key, b"numbers" | b"authoryear"),
+                _ => false,
+            };
+            if !supported {
+                self.note_slice(key);
+            }
+        }
+    }
+
+    fn note_slice(&mut self, text: &[u8]) {
+        let at = (text.as_ptr() as usize).checked_sub(self.p as usize).filter(|at| *at <= self.len).unwrap_or(self.pos);
+        self.note(at);
+    }
+
     fn set_length(&mut self, d: &mut Doc) -> R<()> {
         let name = self.loose_argument();
         let value = self.loose_argument();
         let Some(v) = figure::length_pt(value) else {
+            self.note_slice(value);
             return Ok(());
         };
         let v = self.pt_units(v);
@@ -636,9 +755,11 @@ impl Engine {
             b"\\parindent" => d.parindent = v,
             b"\\parskip" => d.parskip = v,
             b"\\tabcolsep" => d.table_gap = v,
+            b"\\headsep" => d.head_sep = v,
+            b"\\footskip" => d.foot_skip = v,
             b"\\intextsep" => d.float_gap = v,
             b"\\unitlength" => d.picture_unit = v as f64 * self.doc.pt as f64 / 1000.0,
-            _ => {}
+            _ => self.note_slice(name),
         }
         Ok(())
     }
@@ -751,6 +872,9 @@ impl Engine {
             let start = self.pos;
             self.pos += 1;
             let name = self.read_name();
+            if self.control_command(name)? || self.page_setting(d, name)? {
+                continue;
+            }
             match name {
                 b"item" | b"bibitem" => {
                     if !matches!(
@@ -790,10 +914,47 @@ impl Engine {
                         self.recover(d, state, Some(inner))?;
                     }
                 }
+                b"bibliographystyle" | b"addbibresource" | b"nocite" => {
+                    self.skip_options();
+                    let argument = self.loose_argument();
+                    if name == b"addbibresource" && !self.assets.bibliography.has_resource(argument) {
+                        self.note(start);
+                    }
+                }
+                b"bibliography" | b"printbibliography" => {
+                    if name == b"bibliography" {
+                        let argument = self.loose_argument();
+                        if !self.assets.bibliography.has_resource(argument) {
+                            self.note(start);
+                        }
+                    } else {
+                        self.skip_options();
+                    }
+                    if !self.assets.bibliography.is_active() {
+                        self.note(start);
+                    }
+                    let text = self.assets.bibliography.document();
+                    let text = self.source_copy(&text);
+                    let source = self.push_src(text.as_ptr(), text.len());
+                    let done = self.blocks(d, left, narrow, b"");
+                    self.pop_src(source);
+                    done?;
+                }
                 b"documentclass" => {
                     self.skip_ws();
                     let options = if self.peek() == b'[' { self.loose_options() } else { b"" };
                     let class = self.loose_argument();
+                    if !matches!(class, b"article" | b"report" | b"book" | b"standalone") {
+                        self.note(start);
+                    }
+                    let mut at = 0;
+                    while let Some((key, _)) = figure::next_option(options, &mut at) {
+                        if !matches!(key, b"10pt" | b"11pt" | b"12pt" | b"a4paper" | b"letterpaper" | b"onecolumn" | b"twocolumn")
+                            && !(class == b"standalone" && key == b"border")
+                        {
+                            self.note(start);
+                        }
+                    }
                     self.set_paper(d, options);
                     d.preamble = true;
                     if class == b"standalone" {
@@ -840,10 +1001,6 @@ impl Engine {
                 b"chemfig" => self.chemfig(d, left, width)?,
                 b"usepackage" | b"RequirePackage" => self.package_line(d)?,
                 b"setlength" => self.set_length(d)?,
-                b"setcounter" => {
-                    self.skip_argument()?;
-                    self.skip_argument()?;
-                }
                 b"geometry" => {
                     let options = self.group_text()?;
                     self.set_margins(d, options);
@@ -858,7 +1015,11 @@ impl Engine {
                         if key == b"skip" {
                             if let Some(v) = figure::length_pt(value) {
                                 d.caption_gap = self.pt_units(v);
+                            } else {
+                                self.note_slice(key);
                             }
+                        } else {
+                            self.note_slice(key);
                         }
                     }
                 }
@@ -878,6 +1039,7 @@ impl Engine {
                     self.after_display(d);
                 }
                 b"resizebox" | b"scalebox" | b"rotatebox" => {
+                    self.note(start);
                     self.skip_star();
                     self.skip_ws();
                     self.skip_options();
@@ -938,13 +1100,43 @@ impl Engine {
                     if self.core(name, &mut r, &mut c).is_err() {
                         self.err = 0;
                         self.pos = after;
-                        if !d.preamble {
-                            self.note(start);
-                        }
+                        self.note(start);
                         self.skip_arguments();
                     }
                 }
-                _ if ignored_setting(name) && name != b"label" => self.skip_argument()?,
+                _ if ignored_setting(name) && name != b"label" => {
+                    if matches!(name, b"usetikzlibrary" | b"pgfplotsset") {
+                        let options = self.loose_argument();
+                        if name == b"usetikzlibrary" {
+                            for library in options.split(|c| *c == b',') {
+                                if !matches!(
+                                    library.trim_ascii(),
+                                    b"calc"
+                                        | b"arrows"
+                                        | b"arrows.meta"
+                                        | b"positioning"
+                                        | b"shapes"
+                                        | b"shapes.geometric"
+                                        | b"patterns"
+                                        | b"backgrounds"
+                                        | b"fit"
+                                ) {
+                                    self.note_slice(library);
+                                }
+                            }
+                        } else {
+                            let mut at = 0;
+                            while let Some((key, _)) = figure::next_option(options, &mut at) {
+                                if key != b"compat" {
+                                    self.note_slice(key);
+                                }
+                            }
+                        }
+                    } else {
+                        self.note(start);
+                        self.skip_argument()?;
+                    }
+                }
                 b"label" => {
                     let key = self.loose_argument();
                     self.add_label(key);
@@ -963,14 +1155,20 @@ impl Engine {
                         self.recover(d, state, None)?;
                     }
                 }
-                _ if commands::silent_setting(name) => self.skip_arguments(),
+                _ if commands::silent_setting(name) => {
+                    self.note(start);
+                    self.skip_arguments();
+                }
                 b"tikzstyle" => self.preamble_style()?,
                 b"tikzset" => {
                     let text = self.group_text()?;
                     self.store.settings.push(text);
                 }
                 _ if self.conditional(name)? => {}
-                _ if d.preamble => self.skip_arguments(),
+                _ if d.preamble => {
+                    self.note(start);
+                    self.skip_arguments();
+                }
                 _ if d.steps && commands::step(name).is_some() => {
                     let state = (self.p, self.len, self.user_src, self.depth, start);
                     if self.algorithm_line(d, left, width, name).is_err() {
@@ -1072,6 +1270,27 @@ impl Engine {
             | b"resizebox" | b"wrapfigure" | b"wraptable" | b"subfigure" | b"subtable" | b"mdframed" | b"tcolorbox" | b"block"
             | b"alertblock" | b"exampleblock" | b"frame" | b"sidewaystable" | b"sidewaysfigure" | b"threeparttable" | b"tablenotes"
             | b"textblock" | b"textblock*" | b"letter" | b"otherlanguage" => {
+                if matches!(
+                    name,
+                    b"landscape"
+                        | b"subequations"
+                        | b"adjustbox"
+                        | b"resizebox"
+                        | b"wrapfigure"
+                        | b"wraptable"
+                        | b"subfigure"
+                        | b"subtable"
+                        | b"mdframed"
+                        | b"tcolorbox"
+                        | b"sidewaystable"
+                        | b"sidewaysfigure"
+                        | b"textblock"
+                        | b"textblock*"
+                        | b"letter"
+                        | b"otherlanguage"
+                ) {
+                    self.note(start);
+                }
                 self.skip_arguments();
                 if name == b"frame" && !d.fresh {
                     self.new_page(d)?;
@@ -1146,7 +1365,7 @@ impl Engine {
                 let c = self.restyle(&d.ctx.clone(), ST_D);
                 let b = self.environment(&c)?.bx;
                 let number = if name == b"equation" {
-                    d.equation += 1;
+                    d.equation = self.increment_counter(b"equation")?.max(0) as u32;
                     self.set_marker_number(d.equation);
                     Some(d.equation)
                 } else {
@@ -1359,7 +1578,7 @@ impl Engine {
     }
 
     fn heading(&mut self, d: &mut Doc, level: usize, left: i32, width: i32) -> R<()> {
-        let star = self.skip_star() || level == 3;
+        let star = self.skip_star() || level == 3 || (level as i32 + 1) > self.counter_value(b"secnumdepth");
         let level = level.min(2);
         self.skip_ws();
         self.skip_options();
@@ -1372,8 +1591,10 @@ impl Engine {
         let size = font_size([b"Large" as &[u8], b"large", b"normalsize"][level], pt).unwrap_or(1000);
         let c = self.sized(d, size);
         if !star {
-            d.sections[level] += 1;
-            d.sections[level + 1..].fill(0);
+            self.increment_counter([b"section" as &[u8], b"subsection", b"subsubsection"][level])?;
+            for (i, name) in [b"section" as &[u8], b"subsection", b"subsubsection"].iter().enumerate() {
+                d.sections[i] = self.counter_value(name).max(0) as u32;
+            }
             for i in 0..=level {
                 if i > 0 {
                     self.put_char(d, &c, FONT_MAIN_BOLD, b'.' as u32)?;
@@ -1631,6 +1852,9 @@ impl Engine {
         let tok = self.pos;
         self.pos += 1;
         let name = self.read_name();
+        if self.control_command(name)? {
+            return Ok(false);
+        }
         if !group && (ends_paragraph(name) || (d.steps && commands::step(name).is_some())) {
             self.pos = tok;
             return Ok(true);
@@ -1860,7 +2084,7 @@ impl Engine {
             return Ok(());
         }
         self.finish_page(d)?;
-        d.page += 1;
+        d.page = self.increment_counter(b"page")?.max(0) as u32;
         d.column = 0;
         self.fit_frame(d);
         self.place_held(d);
@@ -1869,24 +2093,10 @@ impl Engine {
     }
 
     fn finish_page(&mut self, d: &mut Doc) -> R<()> {
+        d.page = self.counter_value(b"page").max(0) as u32;
         self.finish_bottom(d);
         self.finish_notes(d);
-        let c = d.ctx;
-        let saved = d.word.take();
-        let mark = self.end();
-        let (left, top) = (d.left, d.top);
-        d.left = d.frame_left;
-        d.top = d.frame_top;
-        if d.standalone.is_none() {
-            self.put_number(d, &c, 0, d.page)?;
-        }
-        if let Some(t) = d.word.take() {
-            self.commit(d, t.s, t.e, (d.frame_w - t.w) / 2, d.frame_h + 3000);
-        }
-        d.left = left;
-        d.top = top;
-        self.items.truncate(mark as usize);
-        d.word = saved;
+        self.page_furniture(d)?;
         self.doc.pages.push(self.doc.items.len() as u32);
         self.doc.art_pages.push(self.doc.art.len() as u32);
         Ok(())

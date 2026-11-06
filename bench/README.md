@@ -19,7 +19,7 @@ Every compiler gets the same `.tex` file and has to leave a finished PDF on disk
 - quicktex runs from a fresh process, the same as the others. The time covers starting Bun, loading the wasm, compiling, building the PDF, and writing it.
 - `hyperfine` does the timing, with one warmup run, and the table shows the median. Generated files are deleted before each run, so nothing is reused.
 - Documents with references or a table of contents use `latexmk` for `pdflatex`, `xelatex` and `lualatex`, because one pass leaves `??` in the output. Tectonic reruns on its own, and quicktex resolves references inside one compile.
-- A run stops with an error if quicktex skipped any command in a document, so it cannot win by leaving work out.
+- A run stops with an error if quicktex reports a warning. This catches diagnosed unsupported features, but cannot prove output completeness or equivalence: missing diagnostics and layout bugs can still leave work out. Compare the actual PDFs as well as timings.
 - Tectonic's package downloads happen before timing starts.
 
 The formula table compares libraries that turn one formula into markup: KaTeX, MathJax and Temml. It runs in Node, on the formulas in `tests/support/corpus.ts` that all four accept.
@@ -49,4 +49,16 @@ Timings come from one machine. Compare the ratios, not the milliseconds.
 | `compile.ts` | Command line quicktex: `.tex` in, `.pdf` out |
 | `math.mjs` | The formula comparison |
 | `report.ts` | Turns `results.json` into `results.md` |
-| `comparison.json` | Before/after measurements for this implementation pass, including regressions |
+| `comparison.json` | Historical before/after measurements from the initial implementation pass |
+| `compare.ts` | Alternates a preserved baseline and candidate WASM to detect regressions |
+| `compatibility-comparison.json` | Before/after timing samples and output checks for the compatibility fixes |
+
+## Comparing an implementation change
+
+Preserve the old `wasm-core/js/quicktex.wasm` before rebuilding, then run:
+
+```sh
+bun bench/compare.ts /path/to/baseline.wasm
+```
+
+This alternates both builds in the same process over 21 batches per document and across the formula corpus and records layout plus PDF timings in `compatibility-comparison.json`. It fails if an existing benchmark gains warnings, changes page count or PDF bytes, or slows down by more than the default 5% timing-noise allowance (`BENCH_TOLERANCE` changes that fraction). This is a regression check on the existing corpus, not a substitute for feature-specific correctness tests or PDF review. Run `bun run bench` as well for fresh-process time and memory.

@@ -104,7 +104,6 @@ fn ignored_setup_commands_print_nothing() {
         "\\usepackage{hyperref}",
         "\\usepackage[utf8]{inputenc}",
         "\\usepackage[T1]{fontenc}",
-        "\\pagestyle{empty}",
         "\\setlength{\\columnsep}{1cm}",
         "\\setlength{\\intextsep}{8pt}",
         "\\setlength{\\textfloatsep}{10pt}",
@@ -124,8 +123,8 @@ fn ignored_setup_commands_print_nothing() {
 }
 
 #[test]
-fn unknown_packages_load_quietly() {
-    assert!(good(&with("\\usepackage{notapackage}", "x")).e.warned.is_empty());
+fn unknown_packages_warn() {
+    assert!(!good(&with("\\usepackage{notapackage}", "x")).e.warned.is_empty());
 }
 
 #[test]
@@ -212,4 +211,47 @@ fn text_after_end_document_is_ignored() {
 #[test]
 fn empty_document_has_one_page() {
     assert_eq!(body("").pages, 1);
+}
+
+#[test]
+fn ignored_packages_options_classes_and_settings_warn() {
+    for preamble in [
+        r"\usepackage{times}",
+        r"\usepackage{helvet}",
+        r"\usepackage{mathpazo}",
+        r"\usepackage[german]{babel}",
+        r"\usepackage{cleveref}",
+        r"\usepackage{etoolbox}",
+        r"\usepackage[paperwidth=4in,a5paper,landscape,textwidth=2in]{geometry}",
+        r"\usepackage[unsupported]{graphicx}",
+        r"\newmysterysetting{hello}",
+    ] {
+        let d = good(&with(preamble, "x"));
+        assert!(!d.e.warned.is_empty(), "{preamble}");
+    }
+    for body in [r"\printindex", r"\hypersetup{colorlinks=true}", r"\selectlanguage{french}"] {
+        assert!(!self::body(body).e.warned.is_empty(), "{body}");
+    }
+    assert!(!good(r"\documentclass{IEEEtran}\begin{document}x\end{document}").e.warned.is_empty());
+    assert!(!good(r"\documentclass[a5paper]{article}\begin{document}x\end{document}").e.warned.is_empty());
+}
+
+#[test]
+fn unsupported_package_and_option_warning_positions_name_the_problem() {
+    let source = with(r"\usepackage{times}\usepackage[textwidth=2in]{geometry}", "x");
+    let d = good(&source);
+    assert!(d.e.warned.contains(&(source.find("times").unwrap() as u32)));
+    assert!(d.e.warned.contains(&(source.find("textwidth").unwrap() as u32)));
+}
+
+#[test]
+fn citations_without_a_reference_list_warn() {
+    assert!(!body(r"See \cite{missing}.").e.warned.is_empty());
+}
+
+#[test]
+fn discarded_command_and_environment_options_warn() {
+    for source in [r"\begin{proof}[Custom title]x\end{proof}", r"\begin{algorithmic}[1]\State x\end{algorithmic}"] {
+        assert!(!body(source).e.warned.is_empty(), "{source}");
+    }
 }

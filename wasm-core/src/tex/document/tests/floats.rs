@@ -208,3 +208,87 @@ fn unclosed_floats_are_errors() {
     assert!(compile(&article("\\begin{table}x")).is_err());
     assert!(compile(&article("\\begin{figure}x\\end{table}")).is_err());
 }
+
+fn numbered_table(name: &str, count: usize) -> String {
+    let rows: String = (0..count).map(|i| format!("Row{i:03}\\\\\n")).collect();
+    format!("\\begin{{{name}}}{{|l|}}\\hline {rows}\\hline\\end{{{name}}}")
+}
+
+fn assert_numbered_rows(d: &mut Done, count: usize) {
+    let mut actual = Vec::new();
+    for page in 0..d.pages {
+        for baseline in d.baselines(page) {
+            let mut glyphs: Vec<_> = d.items(page).iter().filter(|i| i.kind == IT_GLYPH && i.y == baseline).collect();
+            glyphs.sort_by_key(|i| i.x);
+            actual.push(glyphs.iter().map(|i| i.a).collect::<Vec<_>>());
+        }
+        // Exercise serialized page output as well as the layout item ranges.
+        let svg = d.page(page);
+        well_formed(&svg).unwrap();
+        assert!(svg.contains("<path"));
+        assert!(d.items(page).iter().filter(|i| i.kind == IT_GLYPH).all(|i| i.y > 0 && i.y < d.laid().h));
+    }
+    let expected: Vec<Vec<_>> =
+        (0..count).map(|i| body(&format!("Row{i:03}")).all_items().iter().filter(|i| i.kind == IT_GLYPH).map(|i| i.a).collect()).collect();
+    assert_eq!(actual, expected, "every row must appear once, in order, inside the page");
+}
+
+#[test]
+fn longtable_keeps_all_ninety_rows_across_pages() {
+    let mut d = body(&numbered_table("longtable", 90));
+    assert!(d.pages >= 2);
+    assert!(d.e.warned.is_empty());
+    assert_numbered_rows(&mut d, 90);
+    for page in 0..d.pages {
+        assert_eq!(d.items(page).iter().filter(|i| i.kind == IT_RULE && i.b > 1000).count(), 2, "vertical borders on page {page}");
+    }
+}
+
+#[test]
+fn oversized_tabular_preserves_rows_and_warns() {
+    let mut d = body(&numbered_table("tabular", 90));
+    assert!(d.pages >= 2);
+    assert!(!d.e.warned.is_empty());
+    assert_numbered_rows(&mut d, 90);
+}
+
+#[test]
+fn longtable_continues_after_text_on_a_partial_page() {
+    let table = numbered_table("longtable", 90);
+    let mut d = body(&format!("{}\n\n{table}\nAfter", words(100)));
+    assert!(d.pages >= 2);
+    let expected = body("After").all_items().iter().filter(|i| i.kind == IT_GLYPH).map(|i| i.a).collect::<Vec<_>>();
+    let last = d.baselines(d.pages - 1).last().copied().unwrap();
+    let actual: Vec<_> = d.items(d.pages - 1).iter().filter(|i| i.kind == IT_GLYPH && i.y == last).map(|i| i.a).collect();
+    assert_eq!(actual, expected);
+    let mut rows = Vec::new();
+    for page in 0..d.pages {
+        for y in d.baselines(page) {
+            let glyphs = d.items(page).iter().filter(|i| i.kind == IT_GLYPH && i.y == y).map(|i| i.a).collect::<Vec<_>>();
+            if glyphs.len() == 6 {
+                rows.push(glyphs);
+            }
+        }
+        well_formed(&d.page(page)).unwrap();
+    }
+    let expected: Vec<Vec<_>> =
+        (0..90).map(|i| body(&format!("Row{i:03}")).all_items().iter().filter(|i| i.kind == IT_GLYPH).map(|i| i.a).collect()).collect();
+    assert_eq!(rows, expected);
+}
+
+#[test]
+fn unsupported_longtable_repeated_heads_warn_without_losing_rows() {
+    let d = body(r"\begin{longtable}{l}Header\\\endhead First\\Second\\\end{longtable}");
+    assert!(!d.e.warned.is_empty());
+    assert_eq!(d.glyphs(), "HeaderFirstSecond".len());
+    assert!(body(r"\begin{longtable}{l}\toprule First\\\midrule Second\\\bottomrule\end{longtable}").e.warned.is_empty());
+}
+
+#[test]
+fn an_unbreakable_table_row_taller_than_a_page_warns() {
+    let text = words(500);
+    let d = body(&format!("\\begin{{longtable}}{{p{{1cm}}}}{text}\\\\Last\\\\\\end{{longtable}}"));
+    assert!(!d.e.warned.is_empty());
+    assert!(d.pages >= 2);
+    assert_eq!(d.glyphs(), text.chars().filter(|ch| !ch.is_whitespace()).count() + "Last".len());
+}

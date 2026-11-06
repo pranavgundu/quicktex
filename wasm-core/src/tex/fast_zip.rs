@@ -13,6 +13,7 @@ struct Bits<'a> {
     count: u32,
 }
 impl Bits<'_> {
+    #[inline(always)]
     fn put(&mut self, value: u32, count: u32) {
         self.value |= (value as u64) << self.count;
         self.count += count;
@@ -22,6 +23,7 @@ impl Bits<'_> {
             self.count -= 8;
         }
     }
+    #[inline(always)]
     fn code(&mut self, symbol: u32) {
         let (code, bits) = match symbol {
             0..=143 => (symbol + 0x30, 8),
@@ -52,6 +54,7 @@ const DIST: [usize; 30] = [
     1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537, 2049, 3073, 4097, 6145, 8193, 12289, 16385,
     24577,
 ];
+#[inline(always)]
 fn hash(data: &[u8], at: usize) -> usize {
     let v = ((data[at] as u32) << 16) | ((data[at + 1] as u32) << 8) | data[at + 2] as u32;
     (v.wrapping_mul(0x9e3779b1) >> 20) as usize
