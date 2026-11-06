@@ -24,7 +24,6 @@ const PARINDENT: i32 = 1500;
 const LIST_INDENT: i32 = 2500;
 const LABEL_GAP: i32 = 500;
 const QUOTE_INDENT: i32 = 2000;
-const DISPLAY_SKIP: i32 = 1000;
 const LOOSEST: i64 = 47;
 const WORST_LINE: i64 = 10_010 * 10_010;
 const OVERFULL: i64 = 1 << 40;
@@ -140,6 +139,8 @@ pub(crate) struct Laid {
     pub(super) w: i32,
     pub(super) h: i32,
     pub(super) pt: i32,
+    // 0 = cropped standalone, 1 = US Letter, 2 = A4.
+    pub(super) paper: u8,
     pub(crate) images: Vec<super::assets::Image>,
 }
 
@@ -197,6 +198,7 @@ struct Doc {
     column: u8,
     column_gap: i32,
     baseline: i32,
+    line_end: i32,
     topskip: i32,
     frame_left: i32,
     frame_top: i32,
@@ -487,6 +489,7 @@ impl Engine {
             column: 0,
             column_gap: 0,
             baseline: 1200,
+            line_end: 0,
             topskip: TOPSKIP,
             frame_left: 0,
             frame_top: 0,
@@ -559,7 +562,6 @@ impl Engine {
             (10, 345)
         };
         let a4 = contains(options, b"a4paper");
-        let (page_w, page_h) = if a4 { (595, 842) } else { (612, 792) };
         let (frame_top, frame_h) = match (pt, a4) {
             (11, false) => (130, 541),
             (12, false) => (126, 548),
@@ -571,8 +573,12 @@ impl Engine {
         let unit = |v: i32| v * 1000 / pt;
         let two = contains(options, b"twocolumn");
         self.doc.pt = pt;
-        self.doc.w = unit(page_w);
-        self.doc.h = unit(page_h);
+        // Layout lengths are TeX points (72.27/in), while paper sizes and
+        // PDF coordinates use big points (72/in). Keep the conversion here
+        // and at PDF output, rather than mixing the two in the text frame.
+        self.doc.paper = if a4 { 2 } else { 1 };
+        self.doc.w = if a4 { 597508 } else { 614295 } / pt;
+        self.doc.h = if a4 { 845047 } else { 794970 } / pt;
         d.columns = if two { 2 } else { 1 };
         d.frame_w = unit(if two { 470 } else { text_w });
         d.frame_left = (self.doc.w - d.frame_w) / 2;
@@ -584,6 +590,13 @@ impl Engine {
             12 => 1208,
             _ => 1200,
         };
+        // The 11pt class actually selects a 10.95pt normal text font.
+        d.ctx = self.sized(d, font_size(b"normalsize", pt).unwrap_or(1000));
+        d.parindent = unit(match pt {
+            11 => 17,
+            12 => 18,
+            _ => 15,
+        });
         d.table_gap = unit(6);
         d.float_gap = unit(12);
         d.caption_gap = unit(10);
@@ -1363,7 +1376,13 @@ impl Engine {
             b"equation" | b"equation*" | b"align" | b"align*" | b"gather" | b"gather*" | b"aligned" | b"gathered" | b"split" => {
                 self.pos = start + b"\\begin".len();
                 let c = self.restyle(&d.ctx.clone(), ST_D);
-                let b = self.environment(&c)?.bx;
+                let b = if matches!(name, b"equation" | b"equation*") {
+                    self.raw_group()?;
+                    let close: &[u8] = if name == b"equation" { b"\\end{equation}" } else { b"\\end{equation*}" };
+                    self.display_until(&c, close)?
+                } else {
+                    self.environment(&c)?.bx
+                };
                 let number = if name == b"equation" {
                     d.equation = self.increment_counter(b"equation")?.max(0) as u32;
                     self.set_marker_number(d.equation);
@@ -1992,8 +2011,30 @@ impl Engine {
     }
 
     fn place_display(&mut self, d: &mut Doc, b: Bx, left: i32, width: i32, number: Option<u32>) {
-        d.skip += DISPLAY_SKIP;
-        let y = self.place_line(d, b.h, b.d);
+        // TeX chooses short display glue when the preceding line ends before
+        // the centered formula (including two ems of clearance).
+        let short = d.line_end + sc(2000, d.ctx.scale) <= left + (width - b.w) / 2;
+        let (above, below) = if short {
+            (
+                0,
+                self.pt_units(match self.doc.pt {
+                    11 => 6.5,
+                    12 => 7.0,
+                    _ => 6.0,
+                }),
+            )
+        } else {
+            let skip = self.pt_units(self.doc.pt as f64);
+            (skip, skip)
+        };
+        // A display at the start of a paragraph follows its empty first line.
+        if d.fresh {
+            self.place_line(d, 0, 0);
+        }
+        d.skip += above;
+        let h = if number.is_some() { b.h.max(sc(750, d.ctx.scale)) } else { b.h };
+        let dep = if number.is_some() { b.d.max(sc(250, d.ctx.scale)) } else { b.d };
+        let y = self.place_line(d, h, dep);
         self.commit(d, b.s, b.e, left + ((width - b.w) / 2).max(0), y);
         self.place_label(d, left, y);
         if let Some(n) = number {
@@ -2010,12 +2051,15 @@ impl Engine {
             self.items.truncate(mark as usize);
             d.word = saved;
         }
-        d.skip += DISPLAY_SKIP;
+        d.skip += below;
+        d.line_end = 0;
     }
 
     fn place_line(&mut self, d: &mut Doc, h: i32, dep: i32) -> i32 {
         if !d.fresh {
-            let y = d.base.saturating_add(d.baseline.max(d.dep.saturating_add(h).saturating_add(LINESKIP))).saturating_add(d.skip);
+            let extent = d.dep.saturating_add(h);
+            let advance = if extent > d.baseline { extent.saturating_add(LINESKIP) } else { d.baseline };
+            let y = d.base.saturating_add(advance).saturating_add(d.skip);
             if y.saturating_add(dep) <= d.text_h - d.note_h - d.bottom_h {
                 d.base = y;
                 d.dep = dep;
@@ -2213,6 +2257,7 @@ impl Engine {
             if start == 0 {
                 self.place_label(d, left, y);
             }
+            d.line_end = if center { left + (width + natural) / 2 } else { left + first + natural + extra };
             start = end;
         }
         self.words.clear();

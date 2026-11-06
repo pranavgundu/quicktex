@@ -1,13 +1,19 @@
 <script lang="ts">
-  import { flushSync } from 'svelte'
+  import { flushSync, type Snippet } from 'svelte'
   import Icon from '../lib/Icon.svelte'
   import Typeset from '../lib/Typeset.svelte'
-  import { fit, minus, plus } from '../lib/icons'
+  import { chevronLeft, chevronRight, fit, minus, plus } from '../lib/icons'
   import { remember, remembered } from '../lib/storage'
   import { showPage } from './patch'
   import { clampZoom, doubleClickZoom, maxZoom, minZoom, nextPreset, savedZoom, wheelFactor } from './zoom'
 
-  let { count, sheets, onwatch }: { count: number; sheets: string[]; onwatch: (pages: number[]) => void } = $props()
+  let { count, sheets, onwatch, notice, tools }: {
+    count: number
+    sheets: string[]
+    onwatch: (pages: number[]) => void
+    notice?: Snippet
+    tools?: Snippet
+  } = $props()
 
   const margin = 48
   const zoomKey = 'quicktex-zoom'
@@ -52,7 +58,8 @@
 
   const percent = $derived(Math.round(zoom * 100))
   const zoomButton =
-    'flex w-10 items-center justify-center hover:bg-rule active:bg-rule-strong disabled:cursor-not-allowed disabled:bg-transparent disabled:text-stale'
+    'flex w-9 items-center justify-center hover:bg-rule active:bg-rule-strong disabled:cursor-not-allowed disabled:bg-transparent disabled:text-stale'
+  const group = 'flex h-10 shrink-0 overflow-hidden rounded-control border border-rule-strong bg-sheet'
 
   function sheetAt(x: number, y: number) {
     const hit = document.elementFromPoint(x, y)?.closest('article')
@@ -220,9 +227,9 @@
   }
 </script>
 
-<div class="relative h-full min-h-0 bg-well" use:shortcuts>
+<div class="@container flex h-full min-h-0 flex-col" use:shortcuts>
   <div
-    class={['h-full touch-pan-x touch-pan-y overflow-auto outline-none', dragging && 'select-none']}
+    class={['min-h-0 flex-1 touch-pan-x touch-pan-y overflow-auto rounded-t-control outline-none', dragging && 'select-none']}
     role="region"
     aria-label="Pages, press plus, minus or zero to zoom"
     data-scroller
@@ -234,7 +241,7 @@
     onpointerdown={grab}
     ondblclick={(event) => zoomAt(doubleClickZoom(zoom), event.clientX, event.clientY)}
   >
-    <div class="flex w-max min-w-full flex-col items-center gap-6 p-6 leading-none" style:font-size="{size}px">
+    <div class="graph-paper flex min-h-full w-max min-w-full flex-col items-center gap-6 p-6 leading-none" style:font-size="{size}px">
       {#each { length: count }, page (page)}
         <article
           class={['flex-none bg-white text-black ring-1 ring-rule-strong [&_svg]:block', dragging ? 'cursor-grabbing' : 'cursor-grab']}
@@ -245,31 +252,51 @@
           use:showPage={sheets[page] ?? ''}
         ></article>
       {/each}
+      {#if count === 0}
+        <div class="m-auto max-w-full text-base leading-normal">{@render notice?.()}</div>
+      {/if}
     </div>
   </div>
-  <div class="absolute top-3 right-4 z-10 flex h-8 items-center gap-2 rounded-control border border-rule-strong bg-sheet px-2 text-xs text-quiet" aria-label="Page navigation">
-    <button type="button" aria-label="Previous page" disabled={currentPage <= 1} onclick={() => goToPage(currentPage - 1)}>‹</button>
-    <input class="w-9 rounded-control bg-paper px-1 text-center text-ink" type="number" min="1" max={count || 1} value={currentPage} aria-label="Page number" disabled={count === 0} onchange={(event) => { const page = Number(event.currentTarget.value); if (Number.isFinite(page)) goToPage(page) }} />
-    <span>/ {count}</span>
-    <button type="button" aria-label="Next page" disabled={currentPage >= count} onclick={() => goToPage(currentPage + 1)}>›</button>
-  </div>
-  <div class="absolute right-4 bottom-4 z-10 flex h-10 overflow-hidden rounded-control border border-rule-strong bg-sheet">
-    <button class={zoomButton} type="button" aria-label="Zoom out" disabled={zoom <= minZoom} onclick={() => zoomMiddle(nextPreset(zoom, -1))}>
-      <Icon icon={minus} />
-    </button>
-    <button
-      class="min-w-16 border-x border-rule px-2 hover:bg-rule active:bg-rule-strong"
-      type="button"
-      aria-label="Reset zoom"
-      onclick={() => zoomMiddle(1)}
-    >
-      <Typeset text="{percent}%" tex={`\\text{${percent}\\%}`} />
-    </button>
-    <button class={zoomButton} type="button" aria-label="Zoom in" disabled={zoom >= maxZoom} onclick={() => zoomMiddle(nextPreset(zoom, 1))}>
-      <Icon icon={plus} />
-    </button>
-    <button class={[zoomButton, 'border-l border-rule']} type="button" aria-label="Fit whole page" onclick={fitPage}>
-      <Icon icon={fit} />
-    </button>
+  <div class="flex shrink-0 flex-wrap items-center gap-2 rounded-b-control border-t border-rule bg-sheet p-2">
+    {@render tools?.()}
+    <div class="flex-1"></div>
+    <div class={[group, 'items-center text-sm text-quiet @max-md:hidden']} aria-label="Page navigation" role="group">
+      <button class={[zoomButton, 'h-full']} type="button" aria-label="Previous page" disabled={currentPage <= 1} onclick={() => goToPage(currentPage - 1)}>
+        <Icon icon={chevronLeft} />
+      </button>
+      <input
+        class="h-full w-9 [appearance:textfield] bg-transparent text-center text-ink outline-none focus:bg-paper [&::-webkit-inner-spin-button]:appearance-none"
+        type="number"
+        min="1"
+        max={count || 1}
+        value={currentPage}
+        aria-label="Page number"
+        disabled={count === 0}
+        onchange={(event) => { const page = Number(event.currentTarget.value); if (Number.isFinite(page)) goToPage(page) }}
+      />
+      <span class="pr-1 whitespace-nowrap">/ {count}</span>
+      <button class={[zoomButton, 'h-full']} type="button" aria-label="Next page" disabled={currentPage >= count} onclick={() => goToPage(currentPage + 1)}>
+        <Icon icon={chevronRight} />
+      </button>
+    </div>
+    <div class={group}>
+      <button class={zoomButton} type="button" aria-label="Zoom out" disabled={zoom <= minZoom} onclick={() => zoomMiddle(nextPreset(zoom, -1))}>
+        <Icon icon={minus} />
+      </button>
+      <button
+        class="min-w-16 border-x border-rule px-2 hover:bg-rule active:bg-rule-strong"
+        type="button"
+        aria-label="Reset zoom"
+        onclick={() => zoomMiddle(1)}
+      >
+        <Typeset text="{percent}%" tex={`\\text{${percent}\\%}`} />
+      </button>
+      <button class={zoomButton} type="button" aria-label="Zoom in" disabled={zoom >= maxZoom} onclick={() => zoomMiddle(nextPreset(zoom, 1))}>
+        <Icon icon={plus} />
+      </button>
+      <button class={[zoomButton, 'border-l border-rule']} type="button" aria-label="Fit whole page" onclick={fitPage}>
+        <Icon icon={fit} />
+      </button>
+    </div>
   </div>
 </div>

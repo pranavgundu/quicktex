@@ -2066,6 +2066,7 @@ impl Engine {
         let (dx, dy) = (to_units(-x0 * k), to_units(y0 * k));
         let (w, h) = (to_units((x1 - x0) * k), to_units((y1 - y0) * k));
         if let Some(border) = d.standalone {
+            self.doc.paper = 0;
             self.doc.w = w.saturating_add(2 * border);
             self.doc.h = h.saturating_add(2 * border);
             d.left = 0;

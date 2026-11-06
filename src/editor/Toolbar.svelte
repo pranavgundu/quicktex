@@ -1,5 +1,11 @@
 <script lang="ts">
   import { tick } from 'svelte'
+  import Button from '../lib/Button.svelte'
+  import Menu from '../lib/Menu.svelte'
+  import Typeset from '../lib/Typeset.svelte'
+  import { command, find, plus, redo, settings, undo } from '../lib/icons'
+  import { mod } from '../lib/keys'
+
   let { run, insert, fontSize = $bindable(14), wrap = $bindable(true), numbers = $bindable(true) }: {
     run: (command: string) => void
     insert: (template: string) => void
@@ -20,15 +26,24 @@
     { label: 'Link', text: '\\href{${https://example.com}}{${Link text}}' },
   ]
   const commands = [
-    { label: 'Undo', id: 'undo', key: '⌘/Ctrl Z' },
-    { label: 'Redo', id: 'redo', key: '⌘/Ctrl ⇧ Z' },
-    { label: 'Bold', id: 'bold', key: '⌘/Ctrl B' },
-    { label: 'Italic', id: 'italic', key: '⌘/Ctrl I' },
-    { label: 'Find and replace', id: 'search', key: '⌘/Ctrl F' },
-    { label: 'Go to line', id: 'goto', key: '⌘/Ctrl G' },
-    { label: 'Toggle comment', id: 'comment', key: '⌘/Ctrl /' },
+    { label: 'Undo', id: 'undo', key: `${mod}Z` },
+    { label: 'Redo', id: 'redo', key: `${mod}⇧Z` },
+    { label: 'Bold', id: 'bold', key: `${mod}B` },
+    { label: 'Italic', id: 'italic', key: `${mod}I` },
+    { label: 'Find and replace', id: 'search', key: `${mod}F` },
+    { label: 'Go to line', id: 'goto', key: `${mod}G` },
+    { label: 'Toggle comment', id: 'comment', key: `${mod}/` },
     { label: 'Indent selection', id: 'indent', key: '' },
   ]
+  const hints = [
+    ['Multiple cursors', 'Alt+click'],
+    ['Save locally', `${mod}S`],
+    ['Compile', `${mod}Enter`],
+    ['Go to line', `${mod}G`],
+    ['Commands', `${mod}⇧P`],
+  ]
+  const field = 'rounded-control border border-rule-strong bg-paper text-ink outline-none focus:border-green'
+
   let dialog: HTMLDialogElement
   let search: HTMLInputElement
   let query = $state('')
@@ -55,51 +70,89 @@
       open()
     }
   }
-</script>
-
-<svelte:window onkeydown={keys} />
-<div class="editor-toolbar" role="toolbar" aria-label="Editing tools">
-  <button type="button" title="Undo (⌘/Ctrl Z)" aria-label="Undo" onclick={() => run('undo')}>↶</button>
-  <button type="button" title="Redo (⌘/Ctrl Shift Z)" aria-label="Redo" onclick={() => run('redo')}>↷</button>
-  <span class="tool-divider"></span>
-  <button type="button" title="Bold (⌘/Ctrl B)" aria-label="Bold" onclick={() => run('bold')}><b>B</b></button>
-  <button type="button" title="Italic (⌘/Ctrl I)" aria-label="Italic" onclick={() => run('italic')}><i>I</i></button>
-  <button type="button" title="Toggle comment (⌘/Ctrl /)" aria-label="Toggle comment" onclick={() => run('comment')}>%</button>
-  <details class="tool-menu">
-    <summary>Insert <span aria-hidden="true">⌄</span></summary>
-    <div class="tool-popover">
-      {#each snippets as item}
-        <button type="button" onclick={(event) => { (event.currentTarget.closest('details') as HTMLDetailsElement).open = false; insert(item.text) }}>{item.label}</button>
-      {/each}
-    </div>
-  </details>
-  <span class="tool-divider"></span>
-  <button type="button" aria-label="Find and replace" title="Find and replace (⌘/Ctrl F)" onclick={() => run('search')}>Find</button>
-  <div class="flex-1"></div>
-  <button type="button" aria-label="Command palette" title="Command palette (⌘/Ctrl Shift P)" onclick={open}>⌘ <span class="max-xl:hidden">Commands</span></button>
-  <details class="tool-menu">
-    <summary aria-label="Editor settings" title="Editor settings">Aa <span aria-hidden="true">⌄</span></summary>
-    <div class="tool-popover settings-popover">
-      <strong>Editor settings</strong>
-      <label>Font size <select aria-label="Font size" bind:value={fontSize}>{#each [12, 13, 14, 15, 16, 18, 20] as size}<option value={size}>{size}px</option>{/each}</select></label>
-      <label><input type="checkbox" bind:checked={wrap} /> Wrap long lines</label>
-      <label><input type="checkbox" bind:checked={numbers} /> Line numbers</label>
-      <p>Multiple cursors: Alt + click<br />Save locally: ⌘/Ctrl S<br />Go to line: ⌘/Ctrl G<br />Commands: ⌘/Ctrl Shift P</p>
-    </div>
-  </details>
-</div>
-<dialog class="command-dialog" bind:this={dialog} aria-label="Command palette">
-  <div class="command-heading"><strong>Command palette</strong><button type="button" aria-label="Close command palette" onclick={() => dialog.close()}>Esc</button></div>
-  <input bind:this={search} bind:value={query} oninput={() => selected = 0} aria-label="Search commands" placeholder="Search commands or insert LaTeX…" onkeydown={(event) => {
+  function browse(event: KeyboardEvent) {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       selected = (selected + (event.key === 'ArrowDown' ? 1 : -1) + choices.length) % Math.max(choices.length, 1)
       dialog.querySelectorAll('[data-choice]')[selected]?.scrollIntoView({ block: 'nearest' })
-    } else if (event.key === 'Enter') { event.preventDefault(); pick(selected) }
-  }} />
-  <div class="command-results">
-    {#each choices as item, index}
-      <button type="button" data-choice class:chosen={selected === index} onclick={() => pick(index)}><span>{item.label}</span><kbd>{item.key}</kbd></button>
-    {:else}<p>No matching commands.</p>{/each}
+    } else if (event.key === 'Enter') {
+      event.preventDefault()
+      pick(selected)
+    }
+  }
+</script>
+
+<svelte:window onkeydown={keys} />
+
+{#snippet divider()}
+  <span class="mx-1 h-5 w-px shrink-0 bg-rule @max-md:hidden" aria-hidden="true"></span>
+{/snippet}
+
+<div class="@container flex shrink-0 items-center gap-0.5 overflow-x-auto border-b border-rule p-1 [scrollbar-width:none]" role="toolbar" aria-label="Editing tools">
+  <Button tool bare icon={undo} label="Undo" title="Undo ({mod}Z)" onclick={() => run('undo')} />
+  <Button tool bare icon={redo} label="Redo" title="Redo ({mod}⇧Z)" onclick={() => run('redo')} />
+  {@render divider()}
+  <Button tool bare tex={String.raw`\textbf{B}`} label="Bold" title="Bold ({mod}B)" onclick={() => run('bold')} />
+  <Button tool bare tex={String.raw`\textit{I}`} label="Italic" title="Italic ({mod}I)" onclick={() => run('italic')} />
+  <Button tool bare tex={String.raw`\%`} label="Toggle comment" title="Toggle comment ({mod}/)" onclick={() => run('comment')} />
+  {@render divider()}
+  <Menu class="@max-md:w-8 @max-md:px-0 @max-md:[&>:not(:first-child)]:hidden" label="Insert" icon={plus} items={snippets.map((item) => ({ label: item.label, action: () => insert(item.text) }))} />
+  <div class="flex-1"></div>
+  <Button tool bare icon={find} label="Find and replace" title="Find and replace ({mod}F)" onclick={() => run('search')} />
+  <Button tool bare icon={command} label="Command palette" title="Command palette ({mod}⇧P)" onclick={open} />
+  <Menu bare label="Editor settings" title="Editor settings" icon={settings}>
+    <div class="w-60 p-3 text-sm">
+      <label class="flex h-8 items-center justify-between gap-2">
+        <Typeset text="Font size" />
+        <select class={[field, 'h-8 px-1']} aria-label="Font size" bind:value={fontSize}>
+          {#each [12, 13, 14, 15, 16, 18, 20] as size (size)}<option value={size}>{size}px</option>{/each}
+        </select>
+      </label>
+      <label class="flex h-8 cursor-pointer items-center gap-2">
+        <input class="size-4 accent-green" type="checkbox" bind:checked={wrap} />
+        <Typeset text="Wrap long lines" />
+      </label>
+      <label class="flex h-8 cursor-pointer items-center gap-2">
+        <input class="size-4 accent-green" type="checkbox" bind:checked={numbers} />
+        <Typeset text="Line numbers" />
+      </label>
+      <dl class="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-t border-rule pt-3 text-xs text-quiet">
+        {#each hints as [action, shortcut] (action)}
+          <dt>{action}</dt>
+          <dd class="text-right font-mono">{shortcut}</dd>
+        {/each}
+      </dl>
+    </div>
+  </Menu>
+</div>
+
+<dialog
+  class="m-auto w-[min(35rem,calc(100vw-2rem))] rounded-control border border-rule-strong bg-sheet p-2 text-ink backdrop:bg-black/40"
+  bind:this={dialog}
+  aria-label="Command palette"
+>
+  <input
+    class={[field, 'h-10 w-full px-3']}
+    bind:this={search}
+    bind:value={query}
+    oninput={() => (selected = 0)}
+    aria-label="Search commands"
+    placeholder="Search commands or insert LaTeX"
+    onkeydown={browse}
+  />
+  <div class="mt-2 max-h-80 overflow-y-auto">
+    {#each choices as item, index (item.label)}
+      <button
+        class={['flex h-9 w-full items-center justify-between gap-4 rounded-control px-3 text-left text-sm', selected === index ? 'bg-ink text-sheet' : 'hover:bg-rule']}
+        type="button"
+        data-choice
+        onclick={() => pick(index)}
+      >
+        <Typeset text={item.label} />
+        <kbd class="font-mono text-xs opacity-70">{item.key}</kbd>
+      </button>
+    {:else}
+      <p class="p-3 text-sm text-quiet">No commands match that search.</p>
+    {/each}
   </div>
 </dialog>

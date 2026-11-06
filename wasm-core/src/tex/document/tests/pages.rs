@@ -20,7 +20,7 @@ fn fixtures_have_the_expected_page_counts() {
 fn header_gives_the_page_size() {
     let mut d = body("x");
     let svg = d.page(0);
-    assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 61200 79200\""), "{}", &svg[..100]);
+    assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 61429 79497\""), "{}", &svg[..100]);
 }
 
 #[test]

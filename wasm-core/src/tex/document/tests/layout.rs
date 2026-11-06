@@ -454,3 +454,35 @@ fn macros_work_in_text() {
 fn macros_work_in_math() {
     assert_eq!(good(&with("\\newcommand{\\R}{\\mathbb{R}}", "$\\R$")).glyphs(), 1);
 }
+
+#[test]
+fn equations_keep_the_formula_and_number_on_the_same_baseline() {
+    let d = body("\\begin{equation}x\\end{equation}");
+    let items = d.items(0);
+    assert_eq!(items[0].y, items[1].y, "an equation is not a vertically centered matrix");
+}
+
+#[test]
+fn consecutive_equations_use_short_display_glue() {
+    // size10.clo: 12pt baseline + 6pt belowdisplayshortskip.
+    let d = body("\\begin{equation}x\\end{equation}\\begin{equation}x\\end{equation}");
+    let ys = d.baselines(0);
+    assert_eq!(ys.len(), 2);
+    assert_eq!(ys[1] - ys[0], 1800);
+}
+
+#[test]
+fn equation_star_has_the_same_formula_layout_as_bracket_display() {
+    let a = body("\\begin{equation*}x+1\\end{equation*}");
+    let b = body("\\[x+1\\]");
+    let positions = |d: &Done| d.items(0).iter().map(|i| (i.x, i.y)).collect::<Vec<_>>();
+    assert_eq!(positions(&a), positions(&b));
+}
+
+#[test]
+fn short_preceding_lines_use_less_space_above_displays() {
+    let short = body("x\\[y\\]").baselines(0);
+    let long = body("a reasonably long preceding line extending beyond the centered formula\\[y\\]").baselines(0);
+    assert_eq!(short[1] - short[0], 1200);
+    assert_eq!(long[1] - long[0], 2200);
+}

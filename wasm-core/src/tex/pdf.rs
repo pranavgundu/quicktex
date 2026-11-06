@@ -77,6 +77,11 @@ pub(super) fn int(out: &mut Vec<u8>, v: i32) {
     out.extend_from_slice(&digits[i..]);
 }
 
+// Thousandths of a TeX point to thousandths of a PDF big point.
+fn big_points(v: i32) -> i32 {
+    (v as i64 * 800 / 803) as i32
+}
+
 fn milli(out: &mut Vec<u8>, v: i32) {
     if v < 0 {
         out.push(b'-');
@@ -323,7 +328,7 @@ impl Engine {
             for coordinate in
                 [left * self.laid.pt, (self.laid.h - bottom) * self.laid.pt, right * self.laid.pt, (self.laid.h - top) * self.laid.pt]
             {
-                milli(out, coordinate);
+                milli(out, big_points(coordinate));
                 out.push(b' ');
             }
             out.extend_from_slice(b"] /A << /S /URI /URI <");
@@ -336,13 +341,22 @@ impl Engine {
         annotations
     }
 
+    fn paper_size(&self) -> (i32, i32) {
+        match self.laid.paper {
+            1 => (612000, 792000),
+            2 => (595276, 841890),
+            _ => (big_points(self.laid.w * self.laid.pt), big_points(self.laid.h * self.laid.pt)),
+        }
+    }
+
     fn page_stream(&self, b: &mut Vec<u8>, s: usize, e: usize, art: (usize, usize), forms: &[u32]) {
         b.clear();
-        milli(b, self.laid.pt);
-        b.extend_from_slice(b" 0 0 ");
-        milli(b, -self.laid.pt);
-        b.extend_from_slice(b" 0 ");
-        milli(b, self.laid.h * self.laid.pt);
+        b.extend_from_slice(match self.laid.pt {
+            11 => b"0.010958904 0 0 -0.010958904 0 ",
+            12 => b"0.011955168 0 0 -0.011955168 0 ",
+            _ => b"0.009962640 0 0 -0.009962640 0 ",
+        });
+        milli(b, self.paper_size().1);
         b.extend_from_slice(b" cm\n");
         let mut color = (0, 0, 0);
         for i in art.0..art.1 {
@@ -720,7 +734,7 @@ impl Engine {
                 next += 1;
             }
             self.object(offsets, next);
-            let (w, h) = (self.laid.w * self.laid.pt, self.laid.h * self.laid.pt);
+            let (w, h) = self.paper_size();
             self.out.extend_from_slice(b"<< /Type /Page /Parent 2 0 R /Resources 3 0 R /MediaBox [0 0 ");
             milli(&mut self.out, w);
             self.out.push(b' ');

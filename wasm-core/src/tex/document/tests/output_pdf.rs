@@ -119,7 +119,7 @@ fn media_box_is_the_page() {
 #[test]
 fn a4_media_box_follows_the_option() {
     let t = pdf_of("\\documentclass[a4paper]{article}\\begin{document}x\\end{document}").text();
-    assert!(t.contains("595") && t.contains("842"));
+    assert!(t.contains("/MediaBox [0 0 595.276 841.890]"));
 }
 
 #[test]

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import Icon from '../lib/Icon.svelte'
+  import Button from '../lib/Button.svelte'
   import Typeset from '../lib/Typeset.svelte'
   import { list } from '../lib/icons'
   import { currentHeading, outline, type Heading } from './scan'
@@ -14,7 +14,6 @@
   let headings = $state<Heading[]>([])
   let current = $state(-1)
   let root: HTMLElement
-  let toggle: HTMLButtonElement
 
   const entries = () => [...root.querySelectorAll<HTMLButtonElement>('li button')]
 
@@ -27,7 +26,7 @@
 
   function hide(refocus: boolean) {
     open = false
-    if (refocus) toggle.focus()
+    if (refocus) root.querySelector('button')?.focus()
   }
 
   function pick(at: number) {
@@ -58,18 +57,8 @@
 <svelte:window onpointerdown={outside} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="relative h-full shrink-0" bind:this={root} onkeydown={keys}>
-  <button
-    class="flex h-full items-center gap-2 border-l border-rule-strong px-4 text-ink hover:bg-sheet"
-    type="button"
-    aria-expanded={open}
-    aria-haspopup="true"
-    bind:this={toggle}
-    onclick={() => (open ? hide(true) : show())}
-  >
-    <Icon icon={list} />
-    <Typeset text="Outline" />
-  </button>
+<div class="relative shrink-0" bind:this={root} onkeydown={keys}>
+  <Button icon={list} label="Outline" short="" aria-expanded={open} aria-haspopup="true" onclick={() => (open ? hide(true) : show())} />
   {#if open}
     <div class="absolute right-0 bottom-full z-10 mb-2 max-h-96 w-80 max-w-[calc(100vw-32px)] overflow-y-auto rounded-control border border-rule-strong bg-sheet py-2">
       {#if headings.length === 0}

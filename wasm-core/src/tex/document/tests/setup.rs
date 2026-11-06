@@ -4,8 +4,8 @@ use super::*;
 fn default_page_is_us_letter_at_ten_points() {
     let d = body("x");
     assert_eq!(d.laid().pt, 10);
-    assert_eq!(d.laid().w, 61200);
-    assert_eq!(d.laid().h, 79200);
+    assert_eq!(d.laid().w, 61429);
+    assert_eq!(d.laid().h, 79497);
 }
 
 #[test]
@@ -13,22 +13,22 @@ fn font_size_options_set_the_unit() {
     for (option, pt) in [("10pt", 10), ("11pt", 11), ("12pt", 12)] {
         let d = good(&format!("\\documentclass[{option}]{{article}}\\begin{{document}}x\\end{{document}}"));
         assert_eq!(d.laid().pt, pt, "{option}");
-        assert_eq!(d.laid().w, 612 * 1000 / pt, "{option}");
+        assert_eq!(d.laid().w, 614295 / pt, "{option}");
     }
 }
 
 #[test]
 fn a4_changes_the_page() {
     let d = good("\\documentclass[a4paper]{article}\\begin{document}x\\end{document}");
-    assert_eq!(d.laid().w, 59500);
-    assert_eq!(d.laid().h, 84200);
+    assert_eq!(d.laid().w, 59750);
+    assert_eq!(d.laid().h, 84504);
 }
 
 #[test]
 fn options_combine() {
     let d = good("\\documentclass[12pt,a4paper,twocolumn]{article}\\begin{document}x\\end{document}");
     assert_eq!(d.laid().pt, 12);
-    assert_eq!(d.laid().w, 595 * 1000 / 12);
+    assert_eq!(d.laid().w, 597508 / 12);
 }
 
 #[test]
@@ -254,4 +254,21 @@ fn discarded_command_and_environment_options_warn() {
     for source in [r"\begin{proof}[Custom title]x\end{proof}", r"\begin{algorithmic}[1]\State x\end{algorithmic}"] {
         assert!(!body(source).e.warned.is_empty(), "{source}");
     }
+}
+
+#[test]
+fn an_eleven_point_document_starts_in_its_actual_normal_font_size() {
+    let plain = good("\\documentclass[11pt]{article}\\begin{document}xyz\\end{document}");
+    let explicit = good("\\documentclass[11pt]{article}\\begin{document}\\normalsize xyz\\end{document}");
+    let positions = |d: &Done| d.items(0).iter().map(|i| (i.x, i.y)).collect::<Vec<_>>();
+    assert_eq!(positions(&plain), positions(&explicit));
+}
+
+#[test]
+fn geometry_leaves_the_correct_number_of_tex_points_for_text() {
+    let mut e = Engine::new();
+    let source = with("\\usepackage[margin=1in]{geometry}", "x");
+    run(&mut e, &source).unwrap();
+    // Letter is 794.97 TeX points high, minus two 72.27pt margins.
+    assert_eq!(e.laid.h - 2 * 7227, 65043);
 }

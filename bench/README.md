@@ -29,7 +29,7 @@ The formula table compares libraries that turn one formula into markup: KaTeX, M
 quicktex is faster partly because it does less. These are real differences, not fine print.
 
 - It handles a subset of LaTeX. Most real documents with custom classes or unsupported packages will not come out the same, and any of these compilers will handle them better. The documents here use only what quicktex supports.
-- It is not TeX. It uses English hyphenation patterns but has no microtype, line breaks still differ, and displayed equations sit further apart, which is why `formulas` runs to more pages.
+- It is not TeX. It uses English hyphenation patterns but has no microtype. Paragraph and page breaking still differ, including flexible vertical spacing around displays, so page counts can differ.
 - Footnotes reserve space at the column bottom; plots use their own tick spacing.
 - PDF text uses embedded outline fonts with Unicode maps and can be selected and searched. Font encoding and compression differ from TeX; see the PDF size table.
 - It can use more memory than `pdflatex` on long documents. See the peak memory table.
@@ -52,6 +52,19 @@ Timings come from one machine. Compare the ratios, not the milliseconds.
 | `comparison.json` | Historical before/after measurements from the initial implementation pass |
 | `compare.ts` | Alternates a preserved baseline and candidate WASM to detect regressions |
 | `compatibility-comparison.json` | Before/after timing samples and output checks for the compatibility fixes |
+
+## Checking pagination against LaTeX
+
+Run `bun run test:parity` (or `bun run test:parity paper formulas`) with
+`pdflatex` and Poppler's `pdfinfo` installed. This compiles the same sources
+with both engines, resolves TeX references over three passes where needed,
+and exits with an error for any page-count mismatch or QuickTeX warning.
+Comparison PDFs and a JSON report are saved under `.work/parity/`.
+
+This is a compatibility check, separate from timing. Equal page counts do
+not establish equal content, line breaks, or visual output. The current
+engine still has known pagination differences; the command exposes them
+rather than accepting them as a successful comparison.
 
 ## Comparing an implementation change
 

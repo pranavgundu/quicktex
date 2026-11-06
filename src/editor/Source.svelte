@@ -122,14 +122,9 @@
     '.cm-scroller': { fontFamily: 'var(--font-mono)', lineHeight: '24px' },
     '.cm-content': { caretColor: 'var(--color-ink)', padding: '8px 0' },
     '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--color-ink)', borderLeftWidth: '2px' },
-    '.cm-gutters': {
-      backgroundColor: 'var(--color-paper)',
-      color: 'var(--color-quiet)',
-      border: 'none',
-      borderRight: '1px solid var(--color-rule)',
-    },
+    '.cm-gutters': { backgroundColor: 'var(--color-sheet)', color: 'var(--color-stale)', border: 'none' },
     '.cm-activeLine': { backgroundColor: tint('green', 8) },
-    '.cm-activeLineGutter': { backgroundColor: 'var(--color-rule)', color: 'var(--color-ink)' },
+    '.cm-activeLineGutter': { backgroundColor: 'transparent', color: 'var(--color-ink)' },
     '.cm-selectionBackground, &.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground': {
       backgroundColor: tint('green', 28),
     },
@@ -179,10 +174,10 @@
     '.cm-completionMatchedText': { color: 'var(--color-green)', fontWeight: '700', textDecoration: 'none' },
     '.cm-completionDetail': { color: 'var(--color-quiet)', fontFamily: 'var(--font-serif)', fontStyle: 'normal', marginLeft: '0' },
     '.cm-completionPreview': { color: 'var(--color-ink)', flex: 'none', fontSize: '16px', lineHeight: '24px' },
-    '.cm-panels': { backgroundColor: 'var(--color-paper)', color: 'var(--color-ink)' },
-    '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--color-rule-strong)' },
+    '.cm-panels': { backgroundColor: 'var(--color-sheet)', color: 'var(--color-ink)' },
+    '.cm-panels.cm-panels-top': { borderBottom: '1px solid var(--color-rule)' },
     '.cm-panel.cm-search': { padding: '8px 16px', fontFamily: 'var(--font-serif)', fontSize: '14px' },
-    '.cm-panel.cm-search label': { color: 'var(--color-quiet)', fontSize: '14px' },
+    '.cm-panel.cm-search label': { alignItems: 'center', color: 'var(--color-quiet)', display: 'inline-flex', fontSize: '14px', gap: '4px' },
     '.cm-panel.cm-search input[type=checkbox]': { accentColor: 'var(--color-green)' },
     '.cm-panel.cm-search [name=close]': { color: 'var(--color-ink)', fontSize: '20px', top: '8px', right: '16px' },
     '.cm-textfield': {
@@ -192,6 +187,7 @@
       color: 'var(--color-ink)',
       fontSize: '14px',
     },
+    '.cm-textfield:focus-visible': { borderColor: 'var(--color-green)', outline: 'none' },
     '.cm-button, .cm-button:active': {
       backgroundColor: 'var(--color-sheet)',
       backgroundImage: 'none',

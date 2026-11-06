@@ -6,5 +6,4 @@
   const svg = $derived(render(tex ?? `\\text{${text}}`))
 </script>
 
-<span class="sr-only">{text}</span>
-<span aria-hidden="true">{@html svg}</span>
+<span class="sr-only">{text}</span><span aria-hidden="true">{@html svg}</span>
