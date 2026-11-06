@@ -557,3 +557,54 @@ fn verbatim_keeps_commands_as_text() {
     let d = clean_body("\\begin{verbatim}\n\\frac{a}\n\\end{verbatim}");
     assert_eq!(d.glyphs(), "\\frac{a}".len());
 }
+
+#[test]
+fn makeatletter_definitions_preserve_internal_control_words_after_makeatother() {
+    let d = clean_body(r"\makeatletter
+        \def\inner@word{Internal}
+        \newcommand{\publicword}{\inner@word}
+        \newcommand{\defaultword}[1][\inner@word]{#1}
+        \makeatother
+        \publicword{} \defaultword{}");
+    let expected = clean_body("Internal Internal");
+    assert_eq!(d.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>(),
+        expected.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>());
+    assert_eq!(d.pages, expected.pages);
+}
+
+#[test]
+fn internal_macro_definitions_do_not_execute_their_body() {
+    clean_body(r"\makeatletter\def\FV@refstepcounter#1{\refstepcounter{#1}}\makeatother Text.");
+}
+
+#[test]
+fn makeatother_restores_source_control_word_boundaries() {
+    let d = clean_body(r"\def\plain{A}\makeatletter\def\plain@word{B}\makeatother\plain@word");
+    let expected = clean_body("A@word");
+    assert_eq!(d.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>(),
+        expected.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>());
+}
+
+#[test]
+fn spaces_after_internal_control_words_follow_tex_tokenization() {
+    for source in [
+        r"\makeatletter\def\inner@word{Internal}\inner@word tail\makeatother",
+        r"\makeatletter\def\inner@word{Internal}\def\wrapper{\inner@word tail}\makeatother\wrapper",
+    ] {
+        let mut actual = clean_body(source);
+        let mut expected = clean_body("Internaltail");
+        assert_eq!(actual.page(0), expected.page(0), "{source}");
+    }
+}
+
+#[test]
+fn comments_cannot_close_braced_or_optional_macro_arguments() {
+    for source in [
+        "\\newcommand{\\word}{Hello% } unmatched brace in a comment\nworld}\\word",
+        "\\newcommand{\\word}[1][Hello% ] unmatched bracket in a comment\nworld]{#1}\\word",
+    ] {
+        let mut actual = clean_body(source);
+        let mut expected = clean_body("Helloworld");
+        assert_eq!(actual.page(0), expected.page(0), "{source}");
+    }
+}

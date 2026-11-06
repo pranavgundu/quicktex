@@ -7,6 +7,7 @@ mod document;
 mod fast_zip;
 mod fonts;
 mod macros;
+mod metrics;
 mod pdf;
 use document::{Laid, Word};
 use macros::Def;
@@ -181,6 +182,7 @@ pub const IT_SLASH: u8 = 3;
 pub const IT_BACKSLASH: u8 = 4;
 pub const IT_UNDERBRACE: u8 = 5;
 pub const IT_IMAGE: u8 = 6;
+pub const IT_ELLIPSE: u8 = 7;
 
 pub const UNIT: u16 = 1000;
 
@@ -310,7 +312,22 @@ struct Stack {
     nbars: u8,
 }
 
+// Direct-mapped, bounded ASCII metric cache. The full font/scale/point-size
+// key is checked on every hit; document edits and colour changes can reuse it.
+#[derive(Clone, Copy, Default)]
+struct TextMetric {
+    key: u64,
+    glyph: u16,
+    natural: i32,
+    width: i32,
+    h: i32,
+    d: i32,
+}
+const TEXT_METRIC_SLOTS: usize = 512;
+
 pub struct Engine {
+    pair: Pair,
+    text_metrics: Vec<TextMetric>,
     p: *const u8,
     pos: usize,
     len: usize,
@@ -321,6 +338,7 @@ pub struct Engine {
     counters: Vec<macros::Counter>,
     loop_iterations: u32,
     has_count_registers: bool,
+    at_letter: bool,
     active_link: u32,
     color_defs: Vec<(&'static [u8], u16)>,
     defs: Vec<Def>,
@@ -431,6 +449,85 @@ fn lookup(n: &[u8]) -> Option<&'static Sym> {
         }
         i = (i + 1) & mask;
     }
+}
+
+/// The last character set, for kerning the next one against it.
+#[derive(Clone, Copy, Default)]
+struct Pair {
+    font: u8,
+    scale: u16,
+    code: u8,
+    end: usize,
+}
+
+/// The position of a character in the OT1 encoding the kern tables use.
+fn kerns_code(cp: u32) -> u8 {
+    match cp {
+        0x2019 => 0x27,
+        0x2018 => 0x60,
+        0x201c => 0x5c,
+        0x201d => 0x22,
+        0x2013 => 0x7b,
+        0x2014 => 0x7c,
+        0x7b | 0x7c | 0x5c => 0,
+        0x21..=0x7e => cp as u8,
+        _ => 0,
+    }
+}
+
+fn kern_pair(font: u8, left: u8, right: u8) -> Option<(i16, u8)> {
+    let table = match font {
+        FONT_MAIN_REGULAR => metrics::MAIN,
+        FONT_MAIN_BOLD => metrics::BOLD,
+        FONT_MAIN_ITALIC => metrics::ITALIC,
+        FONT_SANSSERIF_REGULAR => metrics::SANS,
+        _ => return None,
+    };
+    let at = table.binary_search_by_key(&(left, right), |p| (p.0, p.1)).ok()?;
+    Some((table[at].2, table[at].3))
+}
+
+const FONT_MATH_ITALIC: u8 = 4;
+const DOTS_WIDTH: i32 = 1167;
+const THIN_MU: i32 = 3;
+
+/// Which family of font files sets a character, and its code there.
+fn family_of(font: u8, cp: u32) -> Option<(&'static [metrics::Design], u8)> {
+    let symbol = match cp {
+        0x2212 => Some(0),
+        0x22c5 => Some(1),
+        0xd7 => Some(2),
+        0x2217 => Some(3),
+        0xb1 => Some(6),
+        0x2264 => Some(0x14),
+        0x2265 => Some(0x15),
+        0x2190 => Some(0x20),
+        0x2192 => Some(0x21),
+        0x2032 => Some(0x30),
+        0x221e => Some(0x31),
+        0x2208 => Some(0x32),
+        _ => None,
+    };
+    let code = kerns_code(cp);
+    if matches!(cp, 0x3c | 0x3e) {
+        return Some((metrics::MATH, cp as u8));
+    }
+    match font {
+        FONT_MAIN_REGULAR => symbol.map_or(Some((metrics::ROMAN, code)), |code| Some((metrics::SYMBOLS, code))),
+        FONT_MAIN_BOLD => Some((metrics::STRONG, code)),
+        FONT_MAIN_ITALIC => Some((metrics::SLANTED, code)),
+        FONT_SANSSERIF_REGULAR => Some((metrics::PLAIN, code)),
+        FONT_TYPEWRITER_REGULAR => Some((metrics::MONO, code)),
+        FONT_MATH_ITALIC => match cp {
+            0x3b1..=0x3c9 if cp != 0x3c2 => Some((metrics::MATH, (cp - 0x3b1) as u8 + 0x0b - (cp > 0x3c2) as u8)),
+            _ => Some((metrics::MATH, code)),
+        },
+        _ => None,
+    }
+}
+
+fn font_file(family: &'static [metrics::Design], size: i32) -> &'static metrics::Design {
+    family.iter().rev().find(|file| file.from as i32 * 1000 <= size).unwrap_or(&family[0])
 }
 
 #[inline]
@@ -553,6 +650,8 @@ fn stack_spec(cp: u32) -> Option<Stack> {
 impl Engine {
     pub fn new() -> Self {
         Engine {
+            pair: Pair::default(),
+            text_metrics: Vec::new(),
             p: core::ptr::null(),
             pos: 0,
             len: 0,
@@ -563,6 +662,7 @@ impl Engine {
             counters: Vec::new(),
             loop_iterations: 0,
             has_count_registers: false,
+            at_letter: false,
             active_link: 0,
             color_defs: Vec::new(),
             defs: Vec::new(),
@@ -760,8 +860,20 @@ impl Engine {
     fn read_name(&mut self) -> &'static [u8] {
         let s = self.pos;
         let c = self.peek();
-        if c.is_ascii_alphabetic() {
-            while self.peek().is_ascii_alphabetic() {
+        // Internal control-word tokens stored in macro definitions retain their
+        // identity after makeatother, just as TeX's tokenized replacement text.
+        if c == 0x1f {
+            self.pos += 1;
+            let start = self.pos;
+            while !self.at_end() && self.peek() != 0x1f {
+                self.pos += 1;
+            }
+            let name = self.slice(start, self.pos);
+            if !self.at_end() { self.pos += 1; }
+            return name;
+        }
+        if c.is_ascii_alphabetic() || (self.at_letter && c == b'@') {
+            while self.peek().is_ascii_alphabetic() || (self.at_letter && self.peek() == b'@') {
                 self.pos += 1;
             }
             if self.peek() == b'*' && self.slice(s, self.pos) == b"operatorname" {
@@ -1025,10 +1137,18 @@ impl Engine {
         }
         let m = &self.glyph_metric(g as usize);
         let st = self.end();
-        self.push_glyph(g, 0, 0, c.grp);
+        let natural = sc(m.w as i32, c.scale);
+        let mut width = natural;
+        if matches!(s.cp, 0x2026 | 0x22ef) {
+            width = sc(DOTS_WIDTH, c.scale);
+        } else if self.point_size(c.scale) != 10000 {
+            let font = [FONT_MATH_ITALIC, FONT_MAIN_REGULAR, FONT_MAIN_BOLD].into_iter().find(|font| glyph_id(*font, s.cp) == Some(g));
+            width = font.map_or(natural, |font| self.advance(font, s.cp, natural, c.scale));
+        }
+        self.push_glyph(g, (width - natural) / 2, 0, c.grp);
         let it = if c.font >= FV_RM && c.font <= FV_TT { 0 } else { sc(m.it as i32, c.scale) };
         Atom {
-            bx: self.close(st, sc(m.w as i32, c.scale) + it, sc(m.h as i32, c.scale), sc(m.d as i32, c.scale)),
+            bx: self.close(st, width + it, sc(m.h as i32, c.scale), sc(m.d as i32, c.scale)),
             class: s.class,
             italic: it,
             charbox: true,
@@ -1089,6 +1209,9 @@ impl Engine {
                             continue;
                         }
                     }
+                    // amsmath leaves a thin space after dots that end a formula.
+                    let closing = matches!(name, b"dots" | b"cdots") && self.peek() == b'$' && self.package_loaded(b"amsmath");
+                    let name: &[u8] = if closing && name == b"dots" { b"ldots" } else { name };
                     let Some(s) = lookup(name) else {
                         if self.core(name, r, c)? {
                             continue;
@@ -1106,7 +1229,10 @@ impl Engine {
                                 self.pos = tok;
                                 return self.fail(E_CMD);
                             }
-                            let a = self.sym_atom(c, s);
+                            let mut a = self.sym_atom(c, s);
+                            if closing {
+                                a.bx.w += Self::mu(c, THIN_MU);
+                            }
                             let a = self.scripts(c, a)?;
                             self.place(r, c, a);
                         }
@@ -1287,6 +1413,10 @@ impl Engine {
                 let mut def: Option<Def> = None;
                 if !self.defs.is_empty() {
                     def = self.find_def(name);
+                }
+                if def.is_none() && matches!(name, b"oiint" | b"oiiint") {
+                    self.depth -= 1;
+                    return Ok(self.contour_op(c, if name == b"oiint" { 2 } else { 3 }).bx);
                 }
                 let sym = lookup(name);
                 if def.is_none() && sym.is_none() {
@@ -1632,7 +1762,8 @@ impl Engine {
                         let st = self.end();
                         self.push_glyph(g, 0, 0, upc.grp);
                         let m = &self.glyph_metric(g as usize);
-                        let b = self.close(st, sc(m.w as i32, upc.scale), sc(m.h as i32, upc.scale), sc(m.d as i32, upc.scale));
+                        let width = self.advance(FONT_MAIN_REGULAR, 0x2032, sc(m.w as i32, upc.scale), upc.scale);
+                        let b = self.close(st, width, sc(m.h as i32, upc.scale), sc(m.d as i32, upc.scale));
                         sup = Some(self.join(sup, b));
                     }
                 }
@@ -1741,6 +1872,21 @@ impl Engine {
         a.bx = self.close(a.bx.s, w, h, d);
         a.italic = 0;
         a
+    }
+
+    fn contour_op(&mut self, c: &Ctx, count: i32) -> Atom {
+        let mut atom = self.big_op(c, lookup(b"int").unwrap());
+        let first = self.items[atom.bx.s as usize];
+        let step = atom.bx.w - sc(300, c.scale);
+        for i in 1..count {
+            self.push_glyph(first.a as u16, first.x + i * step, first.y, c.grp);
+        }
+        atom.bx.w += (count - 1) * step;
+        let radius = sc(220, c.scale);
+        self.push_item(c, (atom.bx.w - atom.italic) / 2, -sc(AXIS, c.scale),
+            (count - 1) * step / 2 + radius, radius, IT_ELLIPSE);
+        atom.bx.e = self.end();
+        atom
     }
 
     fn big_op(&mut self, c: &Ctx, s: &Sym) -> Atom {
@@ -2372,20 +2518,88 @@ impl Engine {
         Ok(b)
     }
 
+    fn text_metric(&mut self, font: u8, cp: u32, scale: u16) -> Option<TextMetric> {
+        let key = ((font as u64) << 48) | ((scale as u64) << 32) | ((self.doc.pt as u64) << 24) | (cp as u64 + 1);
+        let slot = (font as usize * 131 + cp as usize + (scale as usize & 31) * 17) & (TEXT_METRIC_SLOTS - 1);
+        if cp < 128 {
+            if self.text_metrics.is_empty() { self.text_metrics.resize(TEXT_METRIC_SLOTS, TextMetric::default()); }
+            let metric = self.text_metrics[slot];
+            if metric.key == key { return Some(metric); }
+        }
+        let builtin = glyph_id(font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp));
+        let glyph = builtin.or_else(|| self.fallback_glyph(cp))?;
+        let m = self.glyph_metric(glyph as usize);
+        let natural = sc(m.w as i32, scale);
+        let metric = TextMetric { key, glyph, natural, width: self.advance(font, cp, natural, scale),
+            h: sc(m.h as i32, scale), d: sc(m.d as i32, scale) };
+        // Fallback outlines can change after registerFont. Only immutable
+        // built-in ASCII metrics are cached, never dynamic Unicode glyphs.
+        if cp < 128 && builtin.is_some() { self.text_metrics[slot] = metric; }
+        Some(metric)
+    }
+
     fn text_glyph(&mut self, c: &Ctx, font: u8, cp: u32, t: &mut Bx) -> R<()> {
-        let g = match glyph_id(font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp)).or_else(|| self.fallback_glyph(cp)) {
-            Some(g) => g,
-            None => return self.missing_glyph(c, font, cp, t),
-        };
-        let m = &self.glyph_metric(g as usize);
-        self.push_glyph(g, t.w, 0, c.grp);
+        let Some(metric) = self.text_metric(font, cp, c.scale) else { return self.missing_glyph(c, font, cp, t); };
+        t.w += self.kern_before(c, font, cp, t.w);
+        self.push_glyph(metric.glyph, t.w + (metric.width - metric.natural) / 2, 0, c.grp);
         if let Some(it) = self.items.last_mut() {
             it.b = cp as i32;
         }
-        t.w += sc(m.w as i32, c.scale);
-        t.h = t.h.max(sc(m.h as i32, c.scale));
-        t.d = t.d.max(sc(m.d as i32, c.scale));
+        self.pair.end = self.items.len();
+        t.w += metric.width;
+        t.h = t.h.max(metric.h);
+        t.d = t.d.max(metric.d);
         Ok(())
+    }
+
+    /// How far a character moves on at this size: LaTeX loads a font file
+    /// drawn for the size, whose letters are not the 10pt ones scaled.
+    fn advance(&self, font: u8, cp: u32, natural: i32, scale: u16) -> i32 {
+        let size = self.point_size(scale);
+        if size == 10000 {
+            return natural;
+        }
+        let Some((family, code)) = family_of(font, cp) else {
+            return natural;
+        };
+        match font_file(family, size).widths[(code & 127) as usize] {
+            0 => natural,
+            width => sc(width as i32, scale),
+        }
+    }
+
+    /// The size of type at this scale, in thousandths of a point.
+    fn point_size(&self, scale: u16) -> i32 {
+        scale as i32 * if self.doc.pt > 0 { self.doc.pt } else { 10 }
+    }
+
+    /// The interword space of a font at this size, as its width, stretch,
+    /// shrink and extra space.
+    pub(crate) fn space_at(&self, font: u8, scale: u16) -> (i32, i32, i32, i32) {
+        let family = family_of(font, b' ' as u32).map_or(metrics::ROMAN, |(family, _)| family);
+        let (width, stretch, shrink, extra) = font_file(family, self.point_size(scale)).space;
+        (sc(width, scale), sc(stretch, scale), sc(shrink, scale), sc(extra, scale))
+    }
+
+    /// Anything between two letters stops TeX kerning them.
+    pub(crate) fn break_pair(&mut self) {
+        self.pair.end = 0;
+    }
+
+    /// The kern or ligature adjustment TeX makes between this character and
+    /// the one just set, which only joins letters of one font and size.
+    fn kern_before(&mut self, c: &Ctx, font: u8, cp: u32, x: i32) -> i32 {
+        let code = kerns_code(cp);
+        let last = self.pair;
+        self.pair = Pair { font, scale: c.scale, code, end: 0 };
+        if x == 0 || last.end != self.items.len() || last.font != font || last.scale != c.scale {
+            return 0;
+        }
+        let Some((adjust, state)) = kern_pair(font, last.code, code) else {
+            return 0;
+        };
+        self.pair.code = state;
+        sc(adjust as i32, c.scale)
     }
 
     #[cold]
@@ -2429,7 +2643,7 @@ impl Engine {
 
     fn text_run(&mut self, c: &Ctx, font: u8) -> R<Bx> {
         let mut t = self.close(self.end(), 0, 0, 0);
-        let space = sc(if font == FONT_TYPEWRITER_REGULAR { 525 } else { 250 }, c.scale);
+        let space = self.space_at(font, c.scale).0;
         loop {
             let ch = self.peek();
             match ch {
@@ -2452,10 +2666,12 @@ impl Engine {
                 }
                 b' ' | b'\n' | b'\t' | b'\r' => {
                     self.skip_ws();
+                    self.break_pair();
                     t.w += space;
                 }
                 b'~' => {
                     self.pos += 1;
+                    self.break_pair();
                     t.w += space;
                 }
                 b'\\' => {

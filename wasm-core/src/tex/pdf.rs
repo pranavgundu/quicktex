@@ -538,7 +538,7 @@ impl Engine {
                 _ => {
                     let mut text = [0u8; 512];
                     let len = brace_path(it, &mut text);
-                    let at = text[1..len].iter().position(|c| *c == b'q').map_or(len, |n| n + 1);
+                    let at = text[1..len].iter().position(|c| matches!(*c, b'q' | b'c')).map_or(len, |n| n + 1);
                     let mut i = 1;
                     let x = read_number(&text[..at], &mut i).unwrap_or(0);
                     let y = read_number(&text[..at], &mut i).unwrap_or(0);

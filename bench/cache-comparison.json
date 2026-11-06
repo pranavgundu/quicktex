@@ -1,0 +1,59 @@
+{
+  "description": "Profile-guided text metric, line-break scratch, decoded image and project-glyph preparation optimizations. No whole-document layout cache.",
+  "beforeSha256": "e0574d45147641e37664fe79240a5a49a45eee71fa99d0eaa52f61884fc5680d",
+  "afterSha256": "b40264dbc42bb0464cc7e30c60c57759deb09208ea186e9e438f9d9a6e79ab8f",
+  "sourceChangingEdits": {
+    "description": "Median of three trials, each with 21 alternating batches and eight source variants per scenario. Stable project files uploaded once. Timings exclude PDF generation; PDFs are fingerprint-checked for every variant before measurement.",
+    "passed": true,
+    "medianMs": {
+      "note": { "before": 0.06610579, "after": 0.057007104, "changePercent": -13.76 },
+      "paper": { "before": 2.423849, "after": 2.089145875, "changePercent": -13.81 },
+      "book": { "before": 65.67075, "after": 56.511042, "changePercent": -13.95 },
+      "image-project": { "before": 7.608791667, "after": 0.003777667, "changePercent": -99.95 },
+      "bibliography": { "before": 1.303614563, "after": 1.212919312, "changePercent": -6.96 }
+    },
+    "imageFixture": "768x512 RGBA PNG; decode cache is warm, not initial image upload/compile",
+    "rawSamples": ["bench/.work/perf-cache/edits-final.json", "bench/.work/perf-cache/edits-final-repeat.json", "bench/.work/perf-cache/edits-final-third.json"],
+    "individualTrialsPassed": [false, true, true],
+    "outlier": "The first trial flagged a 5.8% bibliography slowdown; two fresh-process repeat trials were about 7% faster. All samples and the failed gate are retained, not discarded."
+  },
+  "quietWarmCompileAndPdf": {
+    "passed": true,
+    "changePercent": { "note": -9.54, "paper": -12.38, "formulas": -1.41, "book": -13.47, "drawing": -0.46, "plots": -0.21, "tree": 0.21, "formula_corpus": -2.59 },
+    "rawSamples": "bench/.work/perf-cache/warm-final.json"
+  },
+  "quietColdInitializationAndFirstPdf": {
+    "passed": true,
+    "pairsPerDocument": 21,
+    "medianMs": {
+      "note": { "before": 6.306458, "after": 6.333 },
+      "paper": { "before": 16.30575, "after": 16.125709 },
+      "book": { "before": 98.887917, "after": 88.168875 }
+    },
+    "rawSamples": "bench/.work/perf-cache/cold-final.json"
+  },
+  "correctness": {
+    "identicalUpstreamCorpusPdfs": 185,
+    "identicalSupportedBenchmarkPdfs": 7,
+    "identicalFormulaSvgs": true,
+    "rustTestsPassed": 639,
+    "ignoredRustTests": 1,
+    "ignoredTestReason": "Opt-in native CPU sampling harness",
+    "appAndBrowserTestsPassed": 389,
+    "typeChecksPassed": true,
+    "productionBuildPassed": true
+  },
+  "boundsAndInvalidation": {
+    "textMetrics": "512 direct-mapped entries (~16 KiB), full font/scale/document-point-size key; only immutable built-in ASCII glyphs are cached",
+    "lineBreakScratch": "Reusable per-engine temporary storage; recomputed for every paragraph",
+    "decodedImages": "LRU, at most 32 entries and 16 MiB retained encoded-image data; cleared by project file registration/replacement; requested dimensions remain per-use",
+    "projectGlyphPreparation": "Repeated edits do not rescan unchanged project text; invalidated when files or fonts are registered"
+  },
+  "notes": [
+    "Native book sampling identified text metric lookup and paragraph line breaking as major costs; sample is in bench/.work/perf-cache/sample.txt.",
+    "Caches reuse resources, not completed document layouts. Every timed edit reparses and lays out its changed source.",
+    "Measured speed comparisons isolate the WASM changes using the same JS wrapper; no standalone speed claim is made for the project Unicode scan optimization.",
+    "Timing checks used the existing 5% noise allowance and ran without concurrent test or reference compiler workloads.",
+    "The 185 corpus PDFs remain warning-bearing diagnostic renders, not proof of full LaTeX parity."
+  ]
+}

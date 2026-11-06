@@ -21,6 +21,7 @@ fn decimal(out: &mut Vec<u8>, value: usize) {
 
 #[derive(Clone, Debug)]
 struct Entry {
+    kind: Vec<u8>,
     key: Vec<u8>,
     fields: Vec<(Vec<u8>, Vec<u8>)>,
 }
@@ -28,6 +29,9 @@ impl Entry {
     #[inline(never)]
     fn field(&self, name: &[u8]) -> &[u8] {
         self.fields.iter().find(|(n, _)| n == name).map_or(b"", |(_, v)| v)
+    }
+    fn inherits(&self) -> bool {
+        self.fields.iter().any(|(name, _)| matches!(name.as_slice(), b"crossref" | b"xdata" | b"entryset"))
     }
     #[inline(never)]
     fn authors(&self, full: bool) -> Vec<u8> {
@@ -65,6 +69,15 @@ impl Entry {
     }
 }
 
+#[derive(Clone, Copy, Default, PartialEq)]
+enum Format {
+    #[default]
+    Plain,
+    Springer,
+    Ieee,
+    Acm,
+}
+
 #[derive(Default)]
 pub(super) struct Bibliography {
     entries: Vec<Entry>,
@@ -73,6 +86,8 @@ pub(super) struct Bibliography {
     author_year: bool,
     active: bool,
     uncertain: bool,
+    format: Format,
+    warning_at: usize,
 }
 
 #[derive(Default)]
@@ -81,7 +96,9 @@ struct Requests {
     keys: Vec<Vec<u8>>,
     styles: Vec<(Vec<u8>, usize)>,
     numbers: bool,
+    biblatex: bool,
     author_year: bool,
+    macro_citations: bool,
     uncertain: bool,
     scanned: usize,
     visits: usize,
@@ -249,6 +266,7 @@ fn requests(source: &[u8], files: &[(Vec<u8>, Vec<u8>)], req: &mut Requests, sta
                     skip_balanced(source, &mut p, b'{', b'}');
                 }
             }
+            req.macro_citations |= source[start..p].windows(4).any(|text| text == b"cite");
             continue;
         }
         if command == b"verb" {
@@ -367,14 +385,15 @@ fn requests(source: &[u8], files: &[(Vec<u8>, Vec<u8>)], req: &mut Requests, sta
         let pos = if stack.is_empty() { start } else { origin };
         match command {
             b"bibliography" | b"addbibresource" => {
+                req.biblatex |= command == b"addbibresource";
                 for name in arg.split(|b| *b == b',') {
                     req.files.push((name.trim_ascii().to_vec(), pos));
                 }
             }
             b"bibliographystyle" => req.styles.push((arg.trim_ascii().to_vec(), pos)),
             b"input" | b"include" => {
-                let name = arg.strip_prefix(b"./").unwrap_or(arg);
-                if let Some((name, text)) = files.iter().find(|(n, _)| n == name || (n.starts_with(name) && &n[name.len()..] == b".tex")) {
+                if let Some(index) = super::assets::find_file(files, arg, &[b".tex"]) {
+                    let (name, text) = &files[index];
                     if !stack.contains(name) && stack.len() < 64 {
                         stack.push(name.clone());
                         requests(text, files, req, stack, pos);
@@ -383,6 +402,7 @@ fn requests(source: &[u8], files: &[(Vec<u8>, Vec<u8>)], req: &mut Requests, sta
                 }
             }
             b"usepackage" | b"RequirePackage" => {
+                req.biblatex |= arg.split(|b| *b == b',').any(|n| n.trim_ascii() == b"biblatex");
                 if arg.split(|b| *b == b',').any(|n| n.trim_ascii() == b"natbib") {
                     for option in options.split(|b| *b == b',') {
                         if option.trim_ascii() == b"numbers" || option.trim_ascii() == b"super" {
@@ -442,6 +462,20 @@ impl Bibliography {
             match style.as_slice() {
                 b"plain" | b"unsrt" | b"abbrv" => result.author_year = false,
                 b"plainnat" | b"unsrtnat" | b"abbrvnat" => result.author_year = true,
+                b"splncs04" | b"splncs04nat" | b"spbasic" => {
+                    result.format = Format::Springer;
+                    result.author_year = style != b"splncs04";
+                    result.uncertain = true;
+                }
+                b"IEEEtran" | b"IEEEtranN" | b"IEEEtranN-doi" => {
+                    result.format = Format::Ieee;
+                    result.author_year = style != b"IEEEtran";
+                    result.uncertain = true;
+                }
+                b"ACM-Reference-Format" => {
+                    result.format = Format::Acm;
+                    result.uncertain = true;
+                }
                 _ => {
                     return Err((
                         message(&[
@@ -453,6 +487,7 @@ impl Bibliography {
                     ));
                 }
             }
+            if result.format != Format::Plain { result.warning_at = *pos; }
         }
         if req.author_year {
             result.author_year = true;
@@ -464,10 +499,17 @@ impl Bibliography {
         let mut expanded = 0;
         let mut asset_bytes = 0usize;
         for (name, pos) in req.files {
-            let name = name.strip_prefix(b"./").unwrap_or(&name);
-            let Some((path, bytes)) = files.iter().find(|(n, _)| n == name || (n.starts_with(name) && &n[name.len()..] == b".bib")) else {
-                return Err((message(&[b"bibliography file '", name, b"' was not found in project files"]), pos));
+            let Some(index) = super::assets::find_file(files, &name, &[b".bib"]) else {
+                // LaTeX emits no bibliography when a template merely names a
+                // database but cites nothing. Keep that usable, visibly warn,
+                // and never invent entries or forgive a missing cited database.
+                if req.keys.is_empty() && !req.uncertain && !req.macro_citations {
+                    result.uncertain = true;
+                    continue;
+                }
+                return Err((message(&[b"bibliography file '", &name, b"' was not found in project files"]), pos));
             };
+            let (path, bytes) = &files[index];
             if loaded.contains(path) {
                 continue;
             }
@@ -499,7 +541,8 @@ impl Bibliography {
             }
         }
         result.keys.retain(|key| result.entries.iter().any(|entry| &entry.key == key));
-        if !req.styles.last().is_some_and(|(s, _)| s == b"unsrt" || s == b"unsrtnat") {
+        result.inherit(req.biblatex, &mut expanded).map_err(|why| (why, 0))?;
+        if result.format != Format::Ieee && !req.styles.last().is_some_and(|(s, _)| s == b"unsrt" || s == b"unsrtnat") {
             let mut orders = Vec::with_capacity(result.keys.len());
             for key in &result.keys {
                 let entry = result.entries.iter().find(|e| &e.key == key).unwrap();
@@ -523,18 +566,87 @@ impl Bibliography {
         Ok(result)
     }
 
+    // Classic BibTeX copies absent fields, including title (not title ->
+    // booktitle). BibLaTeX has type-dependent mappings and needs its own rules.
+    #[inline(never)]
+    fn inherit(&mut self, biblatex: bool, expanded: &mut usize) -> Result<(), Vec<u8>> {
+        let absent = usize::MAX;
+        // Preserve original links so processing order cannot hide nested links.
+        let parents: Vec<usize> = self.entries.iter().map(|entry| {
+            if !entry.fields.iter().any(|(name, _)| name == b"crossref") {
+                absent
+            } else {
+                self.entries.iter().position(|parent| parent.key == entry.field(b"crossref"))
+                    .unwrap_or(self.entries.len())
+            }
+        }).collect();
+        let mut counts = alloc::vec![0usize; self.entries.len()];
+        for child in 0..self.entries.len() {
+            let entry = &self.entries[child];
+            if !self.keys.contains(&entry.key) || !entry.inherits() {
+                continue;
+            }
+            let parent = parents[child];
+            let reason: &[u8] = if biblatex || entry.fields.iter().any(|(name, _)| matches!(name.as_slice(), b"xdata" | b"entryset")) {
+                b"BibLaTeX inheritance is unsupported; inline inherited fields"
+            } else if parent == self.entries.len() {
+                b"crossref parent was not found"
+            } else if parent == absent || parents[parent] != absent || self.entries[parent].inherits() {
+                b"nested or cyclic crossref inheritance is unsupported; inline inherited fields"
+            } else {
+                b""
+            };
+            if !reason.is_empty() {
+                return Err(message(&[b"bibliography entry '", &entry.key, b"': ", reason]));
+            }
+            counts[parent] += 1;
+            let (entry, parent) = if child < parent {
+                let (left, right) = self.entries.split_at_mut(parent);
+                (&mut left[child], &right[0])
+            } else {
+                let (left, right) = self.entries.split_at_mut(child);
+                (&mut right[0], &left[parent])
+            };
+            for (name, value) in &parent.fields {
+                if !entry.fields.iter().any(|(own, _)| own == name) {
+                    *expanded = expanded.saturating_add(name.len()).saturating_add(value.len());
+                    if *expanded > 8 * 1024 * 1024 {
+                        return Err(b"bibliography inheritance expansion limit exceeded (8 MiB total)".to_vec());
+                    }
+                    entry.fields.push((name.clone(), value.clone()));
+                }
+            }
+            entry.fields.retain(|(name, _)| name != b"crossref");
+        }
+        // BibTeX's default min-crossrefs is two. Promotion follows database order;
+        // explicitly cited parents retain their original citation position.
+        for (entry, count) in self.entries.iter().zip(counts) {
+            if count >= 2 && !self.keys.contains(&entry.key) {
+                self.keys.push(entry.key.clone());
+            }
+        }
+        Ok(())
+    }
+
     #[inline(never)]
     pub(super) fn has_resource(&self, names: &[u8]) -> bool {
         names.split(|b| *b == b',').all(|name| {
             let name = name.trim_ascii();
-            let name = name.strip_prefix(b"./").unwrap_or(name);
-            self.resources.iter().any(|n| n == name || (n.starts_with(name) && &n[name.len()..] == b".bib"))
+            let name = super::assets::file_name(name);
+            self.resources.iter().any(|n| {
+                let n = super::assets::file_name(n);
+                n == name || (n.starts_with(&name) && &n[name.len()..] == b".bib")
+            })
         })
     }
 
     #[inline(never)]
     pub(super) fn uncertain(&self) -> bool {
         self.uncertain
+    }
+
+    pub(super) fn warning_position(&self) -> usize {
+        self.warning_at
     }
 
     #[inline(never)]
@@ -571,7 +683,7 @@ impl Bibliography {
                 missing = true;
                 continue;
             };
-            if !self.keys.contains(&entry.key) {
+            if !self.keys.contains(&entry.key) || entry.inherits() {
                 missing = true;
             }
             if author_only {
@@ -615,9 +727,50 @@ impl Bibliography {
         Some((text, missing))
     }
 
+    // Bounded built-in renderers for the common publisher families. These do
+    // not execute .bst programs: loading one retains a compatibility warning.
+    #[inline(never)]
+    fn formatted_entry(&self, out: &mut Vec<u8>, entry: &Entry) {
+        let authors = if entry.field(b"author").is_empty() { entry.field(b"editor") } else { entry.field(b"author") };
+        format_names(out, authors, self.format);
+        let springer = self.format == Format::Springer;
+        let ieee = self.format == Format::Ieee;
+        if !authors.is_empty() { out.extend_from_slice(if springer { b": " } else if ieee { b", " } else { b". " }); }
+        if self.format == Format::Acm { field(out, entry.field(b"year"), b"", b". "); }
+        let book_entry = matches!(entry.kind.as_slice(), b"book" | b"proceedings" | b"manual");
+        let title = entry.field(b"title");
+        let title = if !book_entry && self.format != Format::Acm { sentence_case(title) } else { title.to_vec() };
+        field(out, &title, if book_entry && !springer { b"\\textit{" } else if ieee { b"``" } else { b"" },
+            if book_entry && !springer { b"}. " } else if ieee { b",'' " } else { b". " });
+        let journal = entry.field(b"journal");
+        let book = entry.field(b"booktitle");
+        field(out, journal, if springer { b"" } else { b"\\textit{" }, if springer { b" " } else if ieee { b"}, " } else { b"} " });
+        field(out, book, if ieee { b"in \\textit{" } else { b"In: \\textit{" }, b"}. ");
+        field(out, entry.field(b"volume"), if ieee { b"vol.~" } else if springer { b"\\textbf{" } else { b"" },
+            if ieee || self.format == Format::Acm { b", " } else { b"}" });
+        field(out, entry.field(b"number"), if ieee { b"no.~" } else if springer { b"(" } else { b"" },
+            if springer { b"), " } else { b", " });
+        if self.format == Format::Acm && !journal.is_empty() { field(out, entry.field(b"year"), b"(", b"), "); }
+        field(out, entry.field(b"pages"), if ieee || !book.is_empty() { b"pp.~" } else { b"" }, if ieee { b", " } else if springer { b" " } else { b". " });
+        if ieee {
+            field(out, entry.field(b"address"), b"", b": ");
+            field(out, entry.field(b"publisher"), b"", b", ");
+        } else {
+            field(out, entry.field(b"publisher"), b"", if entry.field(b"address").is_empty() { b" " } else { b", " });
+            field(out, entry.field(b"address"), b"", if springer { b" " } else { b". " });
+        }
+        field(out, entry.field(b"edition"), b"", b" ed. ");
+        if self.format != Format::Acm {
+            field(out, entry.field(b"year"), if springer { b"(" } else { b"" }, if springer { b"). " } else { b". " });
+        }
+        field(out, entry.field(b"doi"), b"doi: \\nolinkurl{", b"}. ");
+        field(out, entry.field(b"url"), b"\\nolinkurl{", b"}. ");
+        field(out, entry.field(b"note"), b"", b". ");
+    }
+
     #[inline(never)]
     pub(super) fn document(&self) -> Vec<u8> {
-        if !self.active {
+        if !self.active || self.keys.is_empty() {
             return Vec::new();
         }
         let mut out = b"\\begin{thebibliography}{99}".to_vec();
@@ -628,6 +781,11 @@ impl Bibliography {
             out.extend_from_slice(b"\\bibitem{");
             out.extend_from_slice(key);
             out.extend_from_slice(b"}");
+            if self.format != Format::Plain {
+                self.formatted_entry(&mut out, entry);
+                out.push(b'\n');
+                continue;
+            }
             for name in [
                 b"author".as_slice(),
                 b"title",
@@ -658,6 +816,86 @@ impl Bibliography {
         }
         out.extend_from_slice(b"\\end{thebibliography}");
         out
+    }
+}
+
+fn sentence_case(value: &[u8]) -> Vec<u8> {
+    let mut text = value.to_vec();
+    let (mut depth, mut first, mut command) = (0i32, true, false);
+    for ch in &mut text {
+        match *ch {
+            b'{' => depth += 1,
+            b'}' => { depth -= 1; first = false; },
+            b'\\' => command = true,
+            _ if command && ch.is_ascii_alphabetic() => {},
+            _ => {
+                command = false;
+                if depth == 0 && ch.is_ascii_alphabetic() {
+                    if !first { ch.make_ascii_lowercase(); }
+                    first = false;
+                }
+            }
+        }
+    }
+    text
+}
+
+fn field(out: &mut Vec<u8>, value: &[u8], before: &[u8], after: &[u8]) {
+    if !value.is_empty() {
+        out.extend_from_slice(before);
+        out.extend_from_slice(value);
+        out.extend_from_slice(after);
+    }
+}
+
+#[inline(never)]
+fn format_names(out: &mut Vec<u8>, mut names: &[u8], style: Format) {
+    let mut first = true;
+    while !names.is_empty() {
+        let mut depth = 0i32;
+        let end = (0..names.len()).find(|&at| {
+            match names[at] { b'{' => depth += 1, b'}' => depth -= 1, _ => {} }
+            depth == 0 && names[at..].starts_with(b" and ")
+        }).unwrap_or(names.len());
+        let name = names[..end].trim_ascii();
+        if !first { out.extend_from_slice(if style == Format::Ieee || style == Format::Acm { b" and " } else { b", " }); }
+        first = false;
+        if name.starts_with(b"{") && name.ends_with(b"}") {
+            out.extend_from_slice(name);
+        } else {
+            let comma = name.iter().position(|&c| c == b',');
+            let (last, given) = if let Some(at) = comma {
+                (name[..at].trim_ascii(), name[at + 1..].trim_ascii())
+            } else if let Some(at) = name.iter().rposition(u8::is_ascii_whitespace) {
+                (name[at + 1..].trim_ascii(), name[..at].trim_ascii())
+            } else { (name, b"".as_slice()) };
+            if style == Format::Springer {
+                out.extend_from_slice(last);
+                if !given.is_empty() { out.extend_from_slice(b", "); }
+            }
+            if style == Format::Acm { out.extend_from_slice(given); }
+            else {
+                for word in given.split(u8::is_ascii_whitespace).filter(|word| !word.is_empty()) {
+                    // Preserve protected/accented given names rather than
+                    // truncating a TeX accent or a UTF-8 code point.
+                    if !word[0].is_ascii_alphabetic() { out.extend_from_slice(word); }
+                    else {
+                        for (part, syllable) in word.split(|&c| c == b'-').enumerate() {
+                            if part > 0 && style == Format::Ieee { out.push(b'-'); }
+                            if let Some(&initial) = syllable.first() { out.push(initial); out.push(b'.'); }
+                        }
+                    }
+                    out.push(b' ');
+                }
+                if out.last() == Some(&b' ') { out.pop(); }
+            }
+            if style != Format::Springer {
+                if !given.is_empty() { out.push(b' '); }
+                out.extend_from_slice(last);
+            }
+        }
+        if end == names.len() { break; }
+        names = &names[end + 5..];
     }
 }
 
@@ -873,9 +1111,6 @@ fn parse_limited(bytes: &[u8], expanded: &mut usize) -> Result<Vec<Entry>, &'sta
                 return Err("expected '=' after field name");
             }
             p.at += 1;
-            if matches!(name.as_slice(), b"crossref" | b"xdata" | b"entryset") {
-                return Err("BibTeX crossref/xdata/entryset inheritance is unsupported; inline inherited fields");
-            }
             let value = p.value()?;
             fields.push((name, value));
             p.space();
@@ -888,7 +1123,7 @@ fn parse_limited(bytes: &[u8], expanded: &mut usize) -> Result<Vec<Entry>, &'sta
         if entries.len() >= 4096 {
             return Err("bibliography entry limit exceeded (4096 entries)");
         }
-        entries.push(Entry { key, fields });
+        entries.push(Entry { kind, key, fields });
     }
     *expanded = p.expanded;
     Ok(entries)
@@ -897,6 +1132,86 @@ fn parse_limited(bytes: &[u8], expanded: &mut usize) -> Result<Vec<Entry>, &'sta
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn publisher_style_families_preserve_references_and_warn_about_approximation() {
+        let data = br"@article{z,author={Doe, Jane and Jean-Paul Roe},title={Paper},journal={Journal},year=2024,doi={10.1/test},url={https://example.org},pages={1--9}}
+            @book{a,author={Alice Able},title={Book},publisher={Press},year=2023}";
+        for style in ["splncs04", "splncs04nat", "spbasic", "IEEEtran", "IEEEtranN", "IEEEtranN-doi", "ACM-Reference-Format"] {
+            let source = format!(r"\cite{{z,a}}\bibliographystyle{{{style}}}\bibliography{{data}}");
+            let bib = prepared(source.as_bytes(), data);
+            assert!(bib.uncertain(), "{style} is not an executable BST engine");
+            let rendered = String::from_utf8(bib.document()).unwrap();
+            for text in ["Paper", "Journal", "2024", "10.1/test", "https://example.org", "1--9", "Book", "Press", "2023"] {
+                assert!(rendered.contains(text), "{style}: {text}");
+            }
+            assert_eq!(bib.keys[0], if style.starts_with("IEEE") { b"z" } else { b"a" });
+        }
+    }
+
+    #[test]
+    fn sentence_case_preserves_protected_titles_and_tex_commands() {
+        assert_eq!(sentence_case(br"A {DNA} Study of \TeX{}"), br"A {DNA} study of \TeX{}");
+    }
+
+    #[test]
+    fn publisher_names_handle_inverted_hyphenated_and_corporate_names() {
+        let authors = b"Doe, Jane and Jean-Paul Roe and {Research and Development}";
+        for (style, expected) in [
+            (Format::Springer, "Doe, J., Roe, J.P., {Research and Development}"),
+            (Format::Ieee, "J. Doe and J.-P. Roe and {Research and Development}"),
+            (Format::Acm, "Jane Doe and Jean-Paul Roe and {Research and Development}"),
+        ] {
+            let mut out = Vec::new();
+            format_names(&mut out, authors, style);
+            assert_eq!(String::from_utf8(out).unwrap(), expected);
+        }
+    }
+    fn prepared(source: &[u8], data: &[u8]) -> Bibliography {
+        Bibliography::prepare(source, &[(b"data.bib".to_vec(), data.to_vec())]).unwrap()
+    }
+    const CROSSREFS: &[u8] = br"@inproceedings{a,title={Child},author={},crossref={parent}}
+        @misc{other,title={Other},year=2020}
+        @inproceedings{b,title={Second},crossref={parent}}
+        @proceedings{parent,title={Parent},booktitle={Proceedings},author={Jane Parent},year=2024,publisher={Press}}";
+    #[test]
+    fn classic_crossrefs_match_bibtex_field_and_selection_probe() {
+        // Same input and expected fields as the installed BibTeX 0.99e probe.
+        let bib = prepared(br"\cite{a,other,b}\bibliographystyle{unsrt}\bibliography{data}", CROSSREFS);
+        assert_eq!(bib.keys, [b"a".to_vec(), b"other".to_vec(), b"b".to_vec(), b"parent".to_vec()]);
+        assert_eq!(bib.entries[0].field(b"author"), b"");
+        assert_eq!(bib.entries[0].field(b"title"), b"Child");
+        assert_eq!(bib.entries[0].field(b"booktitle"), b"Proceedings");
+        assert_eq!(bib.entries[0].field(b"year"), b"2024");
+        assert_eq!(bib.entries[2].field(b"author"), b"Jane Parent");
+        assert!(!bib.entries[0].inherits());
+        assert!(!bib.entries[2].inherits());
+        let one = prepared(br"\cite{a}\bibliography{data}", CROSSREFS);
+        assert_eq!(one.keys, [b"a".to_vec()]);
+        let explicit = prepared(br"\nocite{parent,a,b}\bibliographystyle{unsrt}\bibliography{data}", CROSSREFS);
+        assert_eq!(explicit.keys, [b"parent".to_vec(), b"a".to_vec(), b"b".to_vec()]);
+    }
+    #[test]
+    fn inheritance_does_not_invent_biblatex_or_nested_crossref_rules() {
+        for source in [br"\usepackage{biblatex}\cite{a}\bibliography{data}".as_slice(),
+            br"\cite{a}\addbibresource{data.bib}"] {
+            let error = Bibliography::prepare(source, &[(b"data.bib".to_vec(), CROSSREFS.to_vec())]).err().unwrap();
+            assert!(String::from_utf8_lossy(&error.0).contains("BibLaTeX inheritance is unsupported"));
+        }
+        for data in [br"@book{a,crossref={b}} @book{b,crossref={c}} @book{c,title={Root}}".as_slice(),
+            br"@book{a,crossref={b}} @book{b,crossref={a}}", br"@book{a,crossref={a}}"] {
+            let error = Bibliography::prepare(br"\nocite{*}\bibliography{data}", &[(b"data.bib".to_vec(), data.to_vec())]).err().unwrap();
+            assert!(String::from_utf8_lossy(&error.0).contains("nested or cyclic"));
+        }
+    }
+    #[test]
+    fn inherited_field_copies_share_the_expansion_budget() {
+        let mut bib = Bibliography::default();
+        bib.entries = parse(CROSSREFS).unwrap();
+        bib.keys.push(b"a".to_vec());
+        let error = bib.inherit(false, &mut (8 * 1024 * 1024)).unwrap_err();
+        assert!(String::from_utf8_lossy(&error).contains("inheritance expansion limit"));
+    }
     #[test]
     fn nested_strings_quotes_and_concatenation() {
         let entries = parse(br#"@string{journal = "A Journal"} @article{key, author={Jane Doe and Roe, John}, title={A {Nested} Title}, journal=journal # "!", year=2024, month=jan}"#).unwrap();

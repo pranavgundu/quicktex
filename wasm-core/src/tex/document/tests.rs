@@ -1,4 +1,21 @@
 use super::*;
+
+/// Native sampling harness: QT_PROFILE_SOURCE=path QT_PROFILE_RUNS=200
+/// sh wasm-core/test.sh profile_document -- --ignored --nocapture
+#[test]
+#[ignore = "opt-in native CPU sampling harness"]
+fn profile_document() {
+    let source = std::fs::read_to_string(std::env::var("QT_PROFILE_SOURCE").expect("QT_PROFILE_SOURCE is required")).unwrap();
+    let runs: usize = std::env::var("QT_PROFILE_RUNS").unwrap_or_else(|_| "200".into()).parse().unwrap();
+    let mut engine = Engine::new();
+    let len = crate::tex::tests::feed(&mut engine, &source);
+    let start = std::time::Instant::now();
+    for _ in 0..runs {
+        let pages = std::hint::black_box(engine.render_document(len));
+        assert!(pages > 0);
+    }
+    eprintln!("{runs} layouts: {:?}", start.elapsed());
+}
 use crate::tex::tests::{Rng, feed, mutate, output, well_formed};
 
 mod bibliography;
@@ -10,6 +27,7 @@ mod improvements;
 mod layout;
 mod output_pdf;
 mod pages;
+mod parity;
 mod plots;
 mod robust;
 mod setup;

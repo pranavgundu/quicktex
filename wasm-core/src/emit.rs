@@ -153,11 +153,35 @@ unsafe fn brace(p: &mut *mut u8, it: &Item) {
     }
 }
 
+unsafe fn ellipse(p: &mut *mut u8, it: &Item) {
+    unsafe {
+        // Opposite winding for the inner contour leaves a transparent centre.
+        let thickness = (it.b / 5).max(1);
+        for (rx, ry) in [(it.a, it.b), (-(it.a - thickness), it.b - thickness)] {
+            let (kx, ky) = (rx * 5523 / 10000, ry * 5523 / 10000);
+            byte(p, b'M');
+            pair(p, it.x + rx, it.y);
+            for (a, b, c, d, x, y) in [
+                (0, ky, kx - rx, ry, -rx, ry),
+                (-kx, 0, -rx, ky - ry, -rx, -ry),
+                (0, -ky, rx - kx, -ry, rx, -ry),
+                (kx, 0, rx, ry - ky, rx, ry),
+            ] {
+                byte(p, b'c');
+                pair(p, a, b); byte(p, b' ');
+                pair(p, c, d); byte(p, b' ');
+                pair(p, x, y);
+            }
+            byte(p, b'z');
+        }
+    }
+}
+
 pub(crate) fn brace_path(it: &Item, out: &mut [u8; 512]) -> usize {
     unsafe {
         let base = out.as_mut_ptr();
         let mut q = base;
-        brace(&mut q, it);
+        if it.kind == IT_ELLIPSE { ellipse(&mut q, it); } else { brace(&mut q, it); }
         q.offset_from(base) as usize
     }
 }
@@ -391,6 +415,7 @@ impl Engine {
                     pair(p, it.a, it.b);
                     put(p, b"h-50z");
                 }
+                IT_ELLIPSE => ellipse(p, it),
                 _ => brace(p, it),
             }
         }

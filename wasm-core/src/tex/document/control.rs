@@ -107,7 +107,7 @@ impl Engine {
     }
 
     pub(super) fn open_group(&mut self, d: &mut Doc) {
-        self.store.groups.push((d.ctx, d.body_font, d.center));
+        self.store.groups.push((d.ctx, d.body_font, d.center, d.graphic_paths, d.graphic_extensions, d.url_setup));
         d.open_groups += 1;
     }
 
@@ -631,6 +631,7 @@ impl Engine {
         }
         self.skip_ws();
         let mut count: Option<&'static [u8]> = None;
+        let mut count_from = 1.0;
         let mut evaluated: Option<(&'static [u8], &'static [u8], &'static [u8])> = None;
         if self.peek() == b'[' {
             let text = self.bracketed()?;
@@ -640,6 +641,9 @@ impl Engine {
                     let value = super::figure::trim(value);
                     let end = value.iter().position(|c| *c == b' ').unwrap_or(value.len());
                     count = value.get(1..end);
+                    if let Some(from) = super::figure::trim(&value[end..]).strip_prefix(b"from") {
+                        count_from = evaluate(super::figure::trim(from), 0.0, 0.0).map_or(1.0, |(v, _)| v);
+                    }
                 } else if key == b"evaluate" {
                     if let Some((from, into, how)) = evaluate_option(value) {
                         evaluated = Some((from, into, how));
@@ -688,7 +692,7 @@ impl Engine {
             }
             if let Some(name) = count {
                 let mut digits = Vec::new();
-                format_number(index as f64 + 1.0, &mut digits);
+                format_number(index as f64 + count_from, &mut digits);
                 digits.truncate(digits.len() - 6);
                 self.scoped_macro(pic, name, &digits)?;
             }

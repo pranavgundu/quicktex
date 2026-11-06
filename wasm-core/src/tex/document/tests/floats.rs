@@ -292,3 +292,52 @@ fn an_unbreakable_table_row_taller_than_a_page_warns() {
     assert!(d.pages >= 2);
     assert_eq!(d.glyphs(), text.chars().filter(|ch| !ch.is_whitespace()).count() + "Last".len());
 }
+
+fn has_letter(d: &Done, page: usize, ch: u8) -> bool {
+    d.items(page).iter().any(|it| it.kind == IT_GLYPH && it.b == ch as i32)
+}
+
+#[test]
+fn float_count_limits_defer_content_without_losing_it() {
+    for (counter, placement) in [("topnumber", "t"), ("bottomnumber", "b"), ("totalnumber", "h")] {
+        let source = format!(r"\setcounter{{{counter}}}{{0}}\begin{{figure}}[{placement}]Z\end{{figure}}Body");
+        let d = body(&source);
+        assert!(!has_letter(&d, 0, b'Z'), "{counter}");
+        assert!(has_letter(&d, 0, b'B'));
+        assert!((1..d.pages).any(|p| has_letter(&d, p, b'Z')));
+        assert_eq!(d.glyphs(), 5);
+        let override_source = source.replace(&format!("[{placement}]"), &format!("[!{placement}]"));
+        assert!(has_letter(&body(&override_source), 0, b'Z'), "{counter} override");
+    }
+}
+
+#[test]
+fn top_float_limit_resets_on_new_text_pages() {
+    let d = body(r"\setcounter{topnumber}{1}Body\begin{figure}[t]X\end{figure}\begin{figure}[t]Y\end{figure}\newpage Second\newpage Third");
+    assert!(has_letter(&d, 1, b'X'));
+    assert!(!has_letter(&d, 1, b'Y'));
+    assert!(has_letter(&d, 2, b'Y'));
+}
+
+#[test]
+fn wide_float_count_limits_and_zero_limit_flush_terminate() {
+    let d = good(r"\documentclass[twocolumn]{article}\begin{document}\setcounter{dbltopnumber}{0}A\begin{figure*}[t]Z\end{figure*}\newpage B\newpage C\end{document}");
+    assert!(!has_letter(&d, 1, b'Z'));
+    assert!(has_letter(&d, d.pages - 1, b'Z'));
+}
+
+#[test]
+fn table_cell_expansions_restore_the_outer_source_reader() {
+    let d = body(r"\setcounter{table}{7}\begin{longtable}{lll}A&B&C\\\multicolumn{3}{c}{{\bfseries Table \thetable{} continued}}\\D&E&F\\\end{longtable}After");
+    assert!(has_letter(&d, 0, b'D'));
+    assert!(has_letter(&d, 0, b'F'));
+    assert!(has_letter(&d, 0, b'7'));
+    assert_eq!(d.glyphs(), "ABCTable7continuedDEFAfter".len());
+}
+
+#[test]
+fn forced_here_floats_do_not_consume_float_count_limits() {
+    let d = body(r"\setcounter{totalnumber}{0}\begin{figure}[H]Z\end{figure}Body");
+    assert_eq!(d.pages, 1);
+    assert!(has_letter(&d, 0, b'Z'));
+}

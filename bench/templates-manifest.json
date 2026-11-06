@@ -1,0 +1,277 @@
+[
+  {
+    "repository": "SAGP",
+    "sha": "c2f3476e3d57604ef3d7a8f689b7e8abfff18f11",
+    "roots": [
+      "ausarbeitung.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "scientific-thesis-template",
+    "sha": "c6a348f9b74c452da71dd8f28e5001fcceaff5d2",
+    "roots": [
+      "chapters-de/10 - einleitung.tex",
+      "chapters-de/20 - hintergrund.tex",
+      "chapters-de/30 - problemdarstellung.tex",
+      "chapters-de/40 - erstes kapitel.tex",
+      "chapters-de/50 - zweites kapitel.tex",
+      "chapters-de/60 - evaluation.tex",
+      "chapters-de/80 - latex-hinweise.tex",
+      "chapters-de/90 - zusammenfassung.tex",
+      "chapters-en/10 - introduction.tex",
+      "chapters-en/20 - background.tex",
+      "chapters-en/30 - problem exposition.tex",
+      "chapters-en/40 - first real chapter.tex",
+      "chapters-en/50 - second real chapter.tex",
+      "chapters-en/60 - evaluation.tex",
+      "chapters-en/80 - latex hints.tex",
+      "chapters-en/90 - conclusion.tex",
+      "main-basic-listings-english-thu.tex",
+      "main-basic-listings-english-university-of-hamburg.tex",
+      "main-basic-listings-english.tex",
+      "main-basic-listings-german-thu.tex",
+      "main-basic-listings-german-university-of-hamburg.tex",
+      "main-basic-listings-german.tex",
+      "main-english-thu.tex",
+      "main-english-university-of-hamburg.tex",
+      "main-english.tex",
+      "main-german-thu.tex",
+      "main-german-university-of-hamburg.tex",
+      "main-german.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "uni-stuttgart-dissertation-template",
+    "sha": "d017eb4cb08e82f0ed994a8a78fe8222dba3363c",
+    "roots": [
+      "chapters-de/10 - einleitung.tex",
+      "chapters-de/20 - hintergrund.tex",
+      "chapters-de/30 - problemdarstellung.tex",
+      "chapters-de/40 - erstes kapitel.tex",
+      "chapters-de/50 - zweites kapitel.tex",
+      "chapters-de/60 - evaluation.tex",
+      "chapters-de/80 - latex-hinweise.tex",
+      "chapters-de/90 - zusammenfassung.tex",
+      "chapters-en/10 - introduction.tex",
+      "chapters-en/20 - background.tex",
+      "chapters-en/30 - problem exposition.tex",
+      "chapters-en/40 - first real chapter.tex",
+      "chapters-en/50 - second real chapter.tex",
+      "chapters-en/60 - evaluation.tex",
+      "chapters-en/80 - latex hints.tex",
+      "chapters-en/90 - conclusion.tex",
+      "print-version--cover/cover.tex",
+      "print-version--spine/spine.tex",
+      "thesis-example-basic-listings-en.tex",
+      "thesis-example-basic-listings.tex",
+      "thesis-example-en.tex",
+      "thesis-example.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "scientific-thesis-cover",
+    "sha": "85b736fa37ce98d65785163d4bca2effa3c60274",
+    "roots": [
+      "demo.tex",
+      "tests/TEST_english_istesqa.tex",
+      "tests/TEST_english_multiline.tex",
+      "tests/TEST_english_oneside.tex",
+      "tests/TEST_english_oneside_no_number.tex",
+      "tests/TEST_english_twoside.tex",
+      "tests/TEST_german_oneside.tex",
+      "tests/TEST_german_twoside.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "uni-stuttgart-dissertation-cover",
+    "sha": "e9f584db2571911b09d5b5b8ebd9468d82998c2c",
+    "roots": [
+      "example.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "lncs-enhanced",
+    "sha": "a57931e26e634a71633d183c86ade42c73edc2ea",
+    "roots": [
+      "comparison/plain.tex",
+      "paper-basic-listings-newtx.tex",
+      "paper-basic-listings.tex",
+      "paper-de-basic-listings-newtx.tex",
+      "paper-de-basic-listings.tex",
+      "paper-de-newtx.tex",
+      "paper-de.tex",
+      "paper-newtx.tex",
+      "paper.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {
+      "comparison/plain.tex": "."
+    }
+  },
+  {
+    "repository": "latextemplates.github.io",
+    "sha": "e174c2b4f2e5570eaac174fad5fb88f403997195",
+    "roots": [],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "LNI-archive",
+    "sha": "a1f6a4dc576d0173aab4545c470bd74f65dc6b8c",
+    "roots": [
+      "lni-author-template.tex",
+      "paper-bibtex.tex",
+      "paper.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "LNI-enhanced",
+    "sha": "61c7edc356683621ea0d58c4297b089a9e665f39",
+    "roots": [
+      "lni-author-template.tex",
+      "paper-bibtex.tex",
+      "paper.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "ieee-enhanced",
+    "sha": "652f45d11c9bc266761c25ea72ff6927df2eb39a",
+    "roots": [
+      "comparison/plain.tex",
+      "paper-basic-listings.tex",
+      "paper.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {
+      "comparison/plain.tex": "."
+    }
+  },
+  {
+    "repository": "stys-for-overleaf",
+    "sha": "2f62f4f2ffcaf9386f62d86c8a380934e98042ec",
+    "roots": [],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "roots": [],
+    "sourceTemplates": [
+      "generators/app/templates/comparison-plain.acmart.tex",
+      "generators/app/templates/comparison-plain.ieee.tex",
+      "generators/app/templates/comparison-plain.lncs.tex",
+      "generators/app/templates/ieee-nfss-fonts.preamble.en.tex",
+      "generators/app/templates/main.de.tex",
+      "generators/app/templates/main.en.tex",
+      "generators/app/templates/mwe-main.de.tex",
+      "generators/app/templates/mwe-main.en.tex"
+    ],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "Handin-LaTeX-template",
+    "sha": "d29ed2182b30cf7fc8ed30f34875e22618558640",
+    "roots": [
+      "docs/handin-doc.tex",
+      "src/example.tex",
+      "src/layout.tex",
+      "src/main.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "gadr-latex-packages",
+    "sha": "6673b11c4e50c33672e4a26252efe4d86639cf07",
+    "roots": [
+      "change-tracking/changes.tex",
+      "change-tracking/phfcc.tex",
+      "change-tracking/todonotes.tex",
+      "citation-styles/biblatex-apa.tex",
+      "citation-styles/biblatex-authoryear.tex",
+      "citation-styles/biblatex-chicago-authordate.tex",
+      "citation-styles/biblatex-chicago-notes.tex",
+      "citation-styles/biblatex-ieee.tex",
+      "citation-styles/biblatex-mla.tex",
+      "citation-styles/turabian-formatting.tex",
+      "todo-package/pdfcomment.tex",
+      "todo-package/pdfmarginpar.tex",
+      "todo-package/phfcc.tex",
+      "todo-package/todonotes.tex",
+      "uml-diagrams/class-relations--ltmermaid.tex",
+      "uml-diagrams/class-relations--metauml.tex",
+      "uml-diagrams/class-relations--name-only--metauml.tex",
+      "uml-diagrams/class-relations--name-only--tikz-uml.tex",
+      "uml-diagrams/class-relations--pgf-umlcd.tex",
+      "uml-diagrams/class-relations--pst-uml.tex",
+      "uml-diagrams/class-relations--tikz-uml.tex",
+      "uml-diagrams/class-visibility--ltmermaid.tex",
+      "uml-diagrams/class-visibility--metauml.tex",
+      "uml-diagrams/class-visibility--pgf-umlcd.tex",
+      "uml-diagrams/class-visibility--pst-uml.tex",
+      "uml-diagrams/class-visibility--tikz-uml.tex",
+      "uml-diagrams/component--metauml.tex",
+      "uml-diagrams/component--tikz-uml.tex",
+      "uml-diagrams/sequence--activation--ltmermaid.tex",
+      "uml-diagrams/sequence--ltmermaid.tex",
+      "uml-diagrams/sequence--pgf-umlsd.tex",
+      "uml-diagrams/sequence--tikz-uml.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "svjour-enhanced",
+    "sha": "689ad94ce9145affab4b259e42a6fadbd3e945d8",
+    "roots": [
+      "paper.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "acm-enhanced",
+    "sha": "55f4c66e5a4d4421b615c1edc5e300211f704138",
+    "roots": [
+      "comparison/plain.tex",
+      "paper-basic-listings.tex",
+      "paper.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {
+      "comparison/plain.tex": "."
+    }
+  },
+  {
+    "repository": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "roots": [],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  },
+  {
+    "repository": "markdown-latex-quickstart",
+    "sha": "6596fd843b6613cbe82cb75a5a8d04c8b2332547",
+    "roots": [
+      "main-de.tex",
+      "main.tex"
+    ],
+    "sourceTemplates": [],
+    "workingDirectories": {}
+  }
+]

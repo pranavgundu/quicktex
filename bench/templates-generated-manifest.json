@@ -1,0 +1,1294 @@
+[
+  {
+    "repository": "generator-latex-template/matrix-00",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-00",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "acmart",
+      "papersize": "a4",
+      "latexcompiler": "pdflatex",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "acmformat": "manuscript",
+      "acmreview": "true"
+    },
+    "contentHash": "af8043682c3a82c8c7380b822f4d5470a9ec32246aa23b2c90e8fcb028347d09"
+  },
+  {
+    "repository": "generator-latex-template/matrix-01",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-01",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "lncs",
+      "papersize": "a4",
+      "latexcompiler": "lualatex",
+      "bibtextool": "biblatex",
+      "texlive": 2026,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "de",
+      "font": "times",
+      "listings": "minted",
+      "enquotes": "plainlatex",
+      "tweakouterquote": "outerquote",
+      "todo": "none",
+      "examples": "false",
+      "howtotext": "false"
+    },
+    "contentHash": "1182ac8f96dbf4bdcccfdcdfade33bc270f118f0b708a2a1400291c6a927244f"
+  },
+  {
+    "repository": "generator-latex-template/matrix-02",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-02",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "ieee",
+      "papersize": "a4",
+      "latexcompiler": "both",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "de",
+      "font": "default",
+      "listings": "minted",
+      "enquotes": "plainlatex",
+      "tweakouterquote": "outerquote",
+      "todo": "none",
+      "examples": "true",
+      "howtotext": "true",
+      "ieeevariant": "journal"
+    },
+    "contentHash": "c6c63f2fb4722ddabeafa5a552486cdc4c30a41ccecfc4fd230b9928524977e9"
+  },
+  {
+    "repository": "generator-latex-template/matrix-03",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-03",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "both",
+      "bibtextool": "biblatex",
+      "texlive": 2026,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "times",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "false",
+      "thesisvariant": "ustutt",
+      "uml": "tikz-uml"
+    },
+    "contentHash": "8914a4c45ddd8a212949a1aab3e4a24479dedc9f027bd345176a8dae2e48bb41"
+  },
+  {
+    "repository": "generator-latex-template/matrix-04",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-04",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "ieee",
+      "papersize": "a4",
+      "latexcompiler": "lualatex",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "none",
+      "examples": "false",
+      "howtotext": "false",
+      "ieeevariant": "peerreview"
+    },
+    "contentHash": "9921b6477598aad34fdbf4a499dd9323bc77664a04c29626fccf546a514317ad"
+  },
+  {
+    "repository": "generator-latex-template/matrix-05",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-05",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "pdflatex",
+      "bibtextool": "bibtex",
+      "texlive": 2026,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "times",
+      "listings": "minted",
+      "enquotes": "plainlatex",
+      "tweakouterquote": "outerquote",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "thesisvariant": "ustutt",
+      "uml": "plantuml"
+    },
+    "contentHash": "f18a0d5be19b17824ac93de8da0722063a14c1c531658401f62166ab1dbc7246"
+  },
+  {
+    "repository": "generator-latex-template/matrix-06",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-06",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "lualatex",
+      "bibtextool": "biblatex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "de",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "outerquote",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "thesisvariant": "ustutt",
+      "uml": "mermaid"
+    },
+    "contentHash": "9c05803eabe14f07bd8095e3b25f840ce3831dd81f3e34d36bc1e98177fad604"
+  },
+  {
+    "repository": "generator-latex-template/matrix-07",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-07",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "ieee",
+      "papersize": "a4",
+      "latexcompiler": "pdflatex",
+      "bibtextool": "bibtex",
+      "texlive": 2026,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "de",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "plainlatex",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "false",
+      "howtotext": "false",
+      "ieeevariant": "journal"
+    },
+    "contentHash": "35a501b8662d56206fae651bc004f770e370e40fb79cd48e8f321f349d813d98"
+  },
+  {
+    "repository": "generator-latex-template/matrix-08",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-08",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "lncs",
+      "papersize": "a4",
+      "latexcompiler": "both",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "minted",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "false",
+      "howtotext": "true"
+    },
+    "contentHash": "ea0f0ea69149331922236da0bc5cff13f02b23f2e30055d660d5b57b1f3cbad1"
+  },
+  {
+    "repository": "generator-latex-template/matrix-09",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-09",
+    "roots": [
+      "main.tex"
+    ],
+    "options": {
+      "documentclass": "mwe",
+      "papersize": "a4",
+      "latexcompiler": "lualatex",
+      "bibtextool": "biblatex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "none",
+      "examples": "false",
+      "howtotext": "false"
+    },
+    "contentHash": "e94a4dddb0a262ff53a1aaa14404e891a7f848ed00d8cc0ee61840eed62377fa"
+  },
+  {
+    "repository": "generator-latex-template/matrix-10",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-10",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "pdflatex",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "de",
+      "font": "default",
+      "listings": "minted",
+      "enquotes": "plainlatex",
+      "tweakouterquote": "outerquote",
+      "todo": "none",
+      "examples": "true",
+      "howtotext": "true",
+      "thesisvariant": "ustutt",
+      "uml": "tikz-uml"
+    },
+    "contentHash": "47005666a50064eb27498c7c420ace3b4089ca3b46e0152135fe8f5362a71b93"
+  },
+  {
+    "repository": "generator-latex-template/matrix-11",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-11",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "pdflatex",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "times",
+      "listings": "minted",
+      "enquotes": "plainlatex",
+      "tweakouterquote": "babel",
+      "todo": "none",
+      "examples": "true",
+      "howtotext": "false",
+      "thesisvariant": "ustutt",
+      "uml": "mermaid"
+    },
+    "contentHash": "9ee0b675e67f0e7200a3b911baadfd1fe7c39d8d315c4def7c1b77f18c3e6169"
+  },
+  {
+    "repository": "generator-latex-template/matrix-12",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-12",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "pdflatex",
+      "bibtextool": "biblatex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "de",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "none",
+      "examples": "true",
+      "howtotext": "false",
+      "thesisvariant": "ustutt",
+      "uml": "plantuml"
+    },
+    "contentHash": "31c5ba4be5d1e7eeb216999ebc793905736e33904b20f7c2e402331bd149bf6e"
+  },
+  {
+    "repository": "generator-latex-template/matrix-13",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-13",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "acmart",
+      "papersize": "a4",
+      "latexcompiler": "lualatex",
+      "bibtextool": "bibtex",
+      "texlive": 2026,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "de",
+      "font": "default",
+      "listings": "minted",
+      "enquotes": "plainlatex",
+      "tweakouterquote": "outerquote",
+      "todo": "none",
+      "examples": "false",
+      "howtotext": "false",
+      "acmformat": "manuscript",
+      "acmreview": "true"
+    },
+    "contentHash": "046cb18bb70b2dc2b40949bf44ce54e8de8650454f8bffe2e3926febc320522c"
+  },
+  {
+    "repository": "generator-latex-template/matrix-14",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-14",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "ieee",
+      "papersize": "a4",
+      "latexcompiler": "pdflatex",
+      "bibtextool": "bibtex",
+      "texlive": 2026,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "de",
+      "font": "default",
+      "listings": "minted",
+      "enquotes": "plainlatex",
+      "tweakouterquote": "outerquote",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "ieeevariant": "peerreview"
+    },
+    "contentHash": "dfd449f4286461b115d35c171811492ca88ae2925115e86cea23771ceb797747"
+  },
+  {
+    "repository": "generator-latex-template/matrix-15",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-15",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "ieee",
+      "papersize": "a4",
+      "latexcompiler": "lualatex",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "ieeevariant": "journal"
+    },
+    "contentHash": "52f38b918b93c94f115fbed955588e3b789d77e63441efa6bc90ae017b223ac1"
+  },
+  {
+    "repository": "generator-latex-template/matrix-16",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-16",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "lncs",
+      "papersize": "a4",
+      "latexcompiler": "pdflatex",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true"
+    },
+    "contentHash": "d9e343b0942ec6307bd051667d73d92d84608f5406dd70f424e67ecb63b5c83c"
+  },
+  {
+    "repository": "generator-latex-template/matrix-17",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-17",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "pdflatex",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "false",
+      "howtotext": "true",
+      "thesisvariant": "ustutt",
+      "uml": "none"
+    },
+    "contentHash": "b0b428821898d3a3e92a3abdd1c9cb19dbbd414dbdb33fbe73fe563089b37b05"
+  },
+  {
+    "repository": "generator-latex-template/matrix-18",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-18",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "both",
+      "bibtextool": "bibtex",
+      "texlive": 2026,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "thesisvariant": "ustutt",
+      "uml": "mermaid"
+    },
+    "contentHash": "e09146741e57211659499475b3573c985c7427c777616d66648e80e1c62cc224"
+  },
+  {
+    "repository": "generator-latex-template/matrix-19",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-19",
+    "roots": [
+      "main-de.tex"
+    ],
+    "options": {
+      "documentclass": "mwe",
+      "papersize": "a4",
+      "latexcompiler": "lualatex",
+      "bibtextool": "biblatex",
+      "texlive": 2026,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "de",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "none",
+      "examples": "false",
+      "howtotext": "false"
+    },
+    "contentHash": "c32af869e8d7f1bc80c3d2e43441725b8d205b0b2953e2aa55acc60c45f067bb"
+  },
+  {
+    "repository": "generator-latex-template/matrix-20",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-20",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "acmart",
+      "papersize": "a4",
+      "latexcompiler": "both",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "acmformat": "manuscript",
+      "acmreview": "true"
+    },
+    "contentHash": "d64d925f07f19ada635c45fd85f8f07ffe1069c8001a310135a4a2cbf85ac7e5"
+  },
+  {
+    "repository": "generator-latex-template/matrix-21",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-21",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "ieee",
+      "papersize": "a4",
+      "latexcompiler": "pdflatex",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "ieeevariant": "conference"
+    },
+    "contentHash": "e52a27dc1b8fd57b5d458018a57c716bb967ddb797d8e418a5b9291277f94d24"
+  },
+  {
+    "repository": "generator-latex-template/matrix-22",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-22",
+    "roots": [
+      "paper.tex"
+    ],
+    "options": {
+      "documentclass": "ieee",
+      "papersize": "a4",
+      "latexcompiler": "both",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "ieeevariant": "peerreview"
+    },
+    "contentHash": "1cef818843e8b199ccb003949a76057bb704a4b4066d436363bd277041c49987"
+  },
+  {
+    "repository": "generator-latex-template/matrix-23",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-23",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "lualatex",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "thesisvariant": "ustutt",
+      "uml": "tikz-uml"
+    },
+    "contentHash": "aacb83c543edc2a531a252459b4853988508510c122f47dd29941ad9cc85dfd9"
+  },
+  {
+    "repository": "generator-latex-template/matrix-24",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-24",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "lualatex",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "thesisvariant": "ustutt",
+      "uml": "plantuml"
+    },
+    "contentHash": "4e649122a82aa1f396080c3bf6f9c5bc6b8c3718a111eeb4f9c700eb216b5b2d"
+  },
+  {
+    "repository": "generator-latex-template/matrix-25",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-25",
+    "roots": [
+      "thesis-example.tex"
+    ],
+    "options": {
+      "documentclass": "ustutt",
+      "papersize": "a4",
+      "latexcompiler": "both",
+      "bibtextool": "bibtex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "default",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true",
+      "thesisvariant": "ustutt",
+      "uml": "plantuml"
+    },
+    "contentHash": "8253e09117934e48def9352525d6c4e3f03e046826a8c22376e8e4aa84b1f205"
+  },
+  {
+    "repository": "generator-latex-template/matrix-26",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-26",
+    "roots": [
+      "main-english.tex"
+    ],
+    "options": {
+      "documentclass": "scientific-thesis",
+      "papersize": "a4",
+      "latexcompiler": "both",
+      "bibtextool": "biblatex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "en",
+      "font": "times",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true"
+    },
+    "contentHash": "0a96d809e95293517cda258cc54a931991ecac7b04fe8cec4e9f6cd4ff35fef4"
+  },
+  {
+    "repository": "generator-latex-template/matrix-27",
+    "upstream": "generator-latex-template",
+    "sha": "04453b2ed35a6d85ab04c3064f07416ce0c3c3a5",
+    "directory": "generated/generator/matrix-27",
+    "roots": [
+      "main-german.tex"
+    ],
+    "options": {
+      "documentclass": "scientific-thesis",
+      "papersize": "a4",
+      "latexcompiler": "both",
+      "bibtextool": "biblatex",
+      "texlive": 2025,
+      "docker": "no",
+      "overleaf": "no",
+      "lang": "de",
+      "font": "times",
+      "listings": "listings",
+      "enquotes": "csquotes",
+      "tweakouterquote": "babel",
+      "todo": "pdfcomment",
+      "examples": "true",
+      "howtotext": "true"
+    },
+    "contentHash": "9ed556eded381af8d3f4301436cf5c7c4ce2ec3515ac3e200067e3b11f76a87c"
+  },
+  {
+    "repository": "latex-snippets/minted-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/minted-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "minted.example.en.tex",
+    "config": {
+      "listings": "minted"
+    },
+    "contentHash": "05c90405d573e0e533ebfd4f17317eabe1c5cf3fed6e7392fd7558990c069aaa"
+  },
+  {
+    "repository": "latex-snippets/listings-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/listings-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "listings.example.en.tex",
+    "config": {
+      "listings": "listings"
+    },
+    "contentHash": "43640e8f1ba8c58a7ebdcf362ba421484d0a4f7a4773c0f41f23b236a0a8107b"
+  },
+  {
+    "repository": "latex-snippets/todonotes-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/todonotes-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "todos.example.en.tex",
+    "config": {
+      "todo": "todonotes"
+    },
+    "contentHash": "c69a5c3bbe5bc7d75b6cb35538b2d33e4d98d4644e7cd76083ac460c9ca44c29"
+  },
+  {
+    "repository": "latex-snippets/pdfcomment-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/pdfcomment-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "todos.example.en.tex",
+    "config": {
+      "todo": "pdfcomment"
+    },
+    "contentHash": "893e76be461177a75fdbbd257ca89b7cd56c854e5f3cdab7523ac5f0d3c7f32c"
+  },
+  {
+    "repository": "latex-snippets/zref-clever-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/zref-clever-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "zref-clever.example.en.tex",
+    "config": {
+      "crossref": "zref-clever"
+    },
+    "contentHash": "b0f0a124cc386a8c3eb24d6f68102069d11386d152de68ebbd96472388a95206"
+  },
+  {
+    "repository": "latex-snippets/cleveref-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/cleveref-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "cleveref.example.en.tex",
+    "config": {
+      "crossref": "cleveref"
+    },
+    "contentHash": "3f754c81926e2c39eaa7582f4a730e04033b08d8689dc805fa215381789e059e"
+  },
+  {
+    "repository": "latex-snippets/siunitx-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/siunitx-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "siunitx.example.en.tex",
+    "config": {},
+    "contentHash": "3d0f63184b6e766e9705c745590642cc5e2a80dfbdd22784067bc24663b95822"
+  },
+  {
+    "repository": "latex-snippets/csquotes-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/csquotes-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "csquotes.example.en.tex",
+    "config": {},
+    "contentHash": "9c91ca5b20e599a86385461a31df102314bdbdba7ceaa9489905dbbf1006d7f1"
+  },
+  {
+    "repository": "latex-snippets/outerquote-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/outerquote-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "csquotes.example.en.tex",
+    "config": {
+      "tweakouterquote": "outerquote"
+    },
+    "contentHash": "b5aca70322d478341202e13aeae481776d1ef5fce1255d64faa60e91edc9af65"
+  },
+  {
+    "repository": "latex-snippets/paralist-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/paralist-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "paralist.example.en.tex",
+    "config": {},
+    "contentHash": "b8a5711620613f62c748755eef17ef64c946cb82259b819476f3d857db28a841"
+  },
+  {
+    "repository": "latex-snippets/diagbox-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/diagbox-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "diagbox.example.en.tex",
+    "config": {},
+    "contentHash": "5fb54b21970dc20a58ab3c2f74d0af36f14c5f6b56c25aedefcd41c7d45c0d72"
+  },
+  {
+    "repository": "latex-snippets/mindflow-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/mindflow-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "mindflow.example.en.tex",
+    "config": {},
+    "contentHash": "45aa807f22723f7d40065aef0a9d08cfd14c48cea52d4ce3dac7b40d61f8c578"
+  },
+  {
+    "repository": "latex-snippets/textcmds-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/textcmds-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "textcmds.example.en.tex",
+    "config": {
+      "enquotes": "textcmds"
+    },
+    "contentHash": "96104dcf53682f347f12f28c0542f8babd12212ad76142c340e9931ed35eee61"
+  },
+  {
+    "repository": "latex-snippets/booktabs-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/booktabs-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "tables.example.en.tex",
+    "config": {},
+    "contentHash": "356948365d133e196f8613d6e5c15575c19a6ea6bd598e59e5226ec5ed5ce234"
+  },
+  {
+    "repository": "latex-snippets/paragraphs-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/paragraphs-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "paragraphs.example.en.tex",
+    "config": {},
+    "contentHash": "470bd946bb61260fec4547ba3784883cb1941a8b3670dd750cc14be03c8d5ea5"
+  },
+  {
+    "repository": "latex-snippets/hyphenation-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/hyphenation-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "hyphenation.example.en.tex",
+    "config": {},
+    "contentHash": "b369a79de11ec5394b93a8913757bba8a45ddcf65188d565d81157913d7a96ce"
+  },
+  {
+    "repository": "latex-snippets/abbreviations-en",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/abbreviations-en",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "abbreviations.example.en.tex",
+    "config": {
+      "documentclass": "scientific-thesis"
+    },
+    "contentHash": "f978ef02fdfe8892a0e4630a0f35cbed115f39aca809a7069d129e2db10d82b9"
+  },
+  {
+    "repository": "latex-snippets/minted-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/minted-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "minted.example.en.tex",
+    "config": {
+      "listings": "minted"
+    },
+    "contentHash": "05c90405d573e0e533ebfd4f17317eabe1c5cf3fed6e7392fd7558990c069aaa"
+  },
+  {
+    "repository": "latex-snippets/listings-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/listings-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "listings.example.de.tex",
+    "config": {
+      "listings": "listings"
+    },
+    "contentHash": "9ac6f00fb60809088b20d8843e37da4a7f2747addf5570cd5c2837bf59dad1f6"
+  },
+  {
+    "repository": "latex-snippets/todonotes-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/todonotes-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "todos.example.de.tex",
+    "config": {
+      "todo": "todonotes"
+    },
+    "contentHash": "d5ea040f4152e29233245e949d422ee9be6de1d506ae354a0ab074da1ce0f493"
+  },
+  {
+    "repository": "latex-snippets/pdfcomment-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/pdfcomment-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "todos.example.de.tex",
+    "config": {
+      "todo": "pdfcomment"
+    },
+    "contentHash": "8b82bc3ca099193751ba2c71bf7ed1bfaf92c3059a5bc96e34da06b53577ef93"
+  },
+  {
+    "repository": "latex-snippets/zref-clever-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/zref-clever-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "zref-clever.example.en.tex",
+    "config": {
+      "crossref": "zref-clever"
+    },
+    "contentHash": "b0f0a124cc386a8c3eb24d6f68102069d11386d152de68ebbd96472388a95206"
+  },
+  {
+    "repository": "latex-snippets/cleveref-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/cleveref-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "cleveref.example.en.tex",
+    "config": {
+      "crossref": "cleveref"
+    },
+    "contentHash": "3f754c81926e2c39eaa7582f4a730e04033b08d8689dc805fa215381789e059e"
+  },
+  {
+    "repository": "latex-snippets/siunitx-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/siunitx-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "siunitx.example.en.tex",
+    "config": {},
+    "contentHash": "3d0f63184b6e766e9705c745590642cc5e2a80dfbdd22784067bc24663b95822"
+  },
+  {
+    "repository": "latex-snippets/csquotes-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/csquotes-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "csquotes.example.de.tex",
+    "config": {},
+    "contentHash": "4cfdb95bb36665ab720024759a96a429ded8a70ef94e4e1b068047bd96b86301"
+  },
+  {
+    "repository": "latex-snippets/outerquote-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/outerquote-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "csquotes.example.de.tex",
+    "config": {
+      "tweakouterquote": "outerquote"
+    },
+    "contentHash": "f3f42903064da295aa458bf74fd6ac478c0c65f1a9bb2d4960dd255f65b9b401"
+  },
+  {
+    "repository": "latex-snippets/paralist-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/paralist-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "paralist.example.en.tex",
+    "config": {},
+    "contentHash": "b8a5711620613f62c748755eef17ef64c946cb82259b819476f3d857db28a841"
+  },
+  {
+    "repository": "latex-snippets/diagbox-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/diagbox-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "diagbox.example.en.tex",
+    "config": {},
+    "contentHash": "5fb54b21970dc20a58ab3c2f74d0af36f14c5f6b56c25aedefcd41c7d45c0d72"
+  },
+  {
+    "repository": "latex-snippets/mindflow-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/mindflow-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "mindflow.example.en.tex",
+    "config": {},
+    "contentHash": "45aa807f22723f7d40065aef0a9d08cfd14c48cea52d4ce3dac7b40d61f8c578"
+  },
+  {
+    "repository": "latex-snippets/textcmds-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/textcmds-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "textcmds.example.en.tex",
+    "config": {
+      "enquotes": "textcmds"
+    },
+    "contentHash": "96104dcf53682f347f12f28c0542f8babd12212ad76142c340e9931ed35eee61"
+  },
+  {
+    "repository": "latex-snippets/booktabs-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/booktabs-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "tables.example.en.tex",
+    "config": {},
+    "contentHash": "356948365d133e196f8613d6e5c15575c19a6ea6bd598e59e5226ec5ed5ce234"
+  },
+  {
+    "repository": "latex-snippets/paragraphs-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/paragraphs-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "paragraphs.example.de.tex",
+    "config": {},
+    "contentHash": "dc4d5a3f7c3b4ac2b451a1e3e402cfb0a9767dc6fcb9f05b541e8fe0a756539f"
+  },
+  {
+    "repository": "latex-snippets/hyphenation-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/hyphenation-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "hyphenation.example.en.tex",
+    "config": {},
+    "contentHash": "b369a79de11ec5394b93a8913757bba8a45ddcf65188d565d81157913d7a96ce"
+  },
+  {
+    "repository": "latex-snippets/abbreviations-de",
+    "upstream": "latex-snippets",
+    "sha": "ff90f46c3238a97f5f11666856930641aaac869a",
+    "generatorSha": "28e5f6a325f58af215a7dd8a2e91fe50f8d087d4",
+    "directory": "generated/snippets/abbreviations-de",
+    "roots": [
+      "snippet.tex"
+    ],
+    "template": "abbreviations.example.de.tex",
+    "config": {
+      "documentclass": "scientific-thesis"
+    },
+    "contentHash": "62594c5b4a47c38e9da054ce2e58722062416df44ec3b97e893e22fe805b20d1"
+  },
+  {
+    "repository": "stys-for-overleaf/class-smoke",
+    "upstream": "stys-for-overleaf",
+    "sha": "2f62f4f2ffcaf9386f62d86c8a380934e98042ec",
+    "directory": "generated/stys-class-smoke",
+    "roots": [
+      "smoke.tex"
+    ],
+    "kind": "class-smoke",
+    "contentHash": "89c0f9ef5dd2040d01527515657c0b37f6dbfb4dac4a1b6ac0de767b165e87c2"
+  },
+  {
+    "repository": "Handin-LaTeX-template/distribution",
+    "upstream": "Handin-LaTeX-template",
+    "sha": "d29ed2182b30cf7fc8ed30f34875e22618558640",
+    "directory": "generated/handin-distribution/handin",
+    "roots": [
+      "example.tex",
+      "handin-doc.tex"
+    ],
+    "kind": "packaged-distribution",
+    "contentHash": "544764a7fd10eca5bd72dd984468cba0076a9597342c19a1b5e81956deeef485"
+  }
+]

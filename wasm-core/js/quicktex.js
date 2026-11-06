@@ -77,7 +77,11 @@ export function render(tex, display = false) {
 
 export function renderDocument(tex, options) {
   if (options?.files) setFiles(options.files);
-  prepareGlyphs(tex + projectText);
+  prepareGlyphs(tex);
+  if (!projectGlyphsReady) {
+    prepareGlyphs(projectText);
+    projectGlyphsReady = true;
+  }
   const pages = exports_.qt_document(stage(tex));
   if (pages < 0) fail(pages);
   return pages;
@@ -115,6 +119,7 @@ export function usePackage(name) {
 export function setFiles(files) {
   exports_.qt_files_clear();
   projectText = Object.values(files).filter((value) => typeof value === 'string').join(' ');
+  projectGlyphsReady = false;
   for (const [name, value] of Object.entries(files)) {
     const key = encoder.encode(name.replaceAll('\\', '/').replace(/^\.\//, ''));
     const data = typeof value === 'string' ? encoder.encode(value) : new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
@@ -129,6 +134,7 @@ let fontExports = null;
 let fontReady = null;
 const prepared = new Set();
 let projectText = '';
+let projectGlyphsReady = false;
 
 async function initFonts(read) {
   if (fontExports) return;
@@ -150,6 +156,7 @@ export async function registerFont(data, read) {
   new Uint8Array(fontExports.memory.buffer).set(font, pointer);
   if (fontExports.font_load(font.length) !== 0) throw new Error('Invalid OpenType font');
   prepared.clear();
+  projectGlyphsReady = false;
 }
 
 function prepareGlyphs(tex) {

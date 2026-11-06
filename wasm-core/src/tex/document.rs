@@ -14,43 +14,104 @@ mod legacy;
 mod plot;
 
 const CENTER_GAP: i32 = 800;
+const PARTOP_GAP: i32 = 200;
+const CENTER_GIVE: i32 = 400;
+const PARTOP_GIVE: i32 = 100;
+const HEADING_GIVE: i32 = 86;
+const DISPLAY_GIVE: i32 = 500;
+const SHORT_DISPLAY_GIVE: i32 = 300;
+const CENTER_STRETCH: i32 = 200;
+const PARTOP_STRETCH: i32 = 100;
+const HEADING_STRETCH: i32 = 430;
+const HEADING_AFTER_STRETCH: i32 = 86;
+const DISPLAY_STRETCH: i32 = 200;
+const SHORT_DISPLAY_STRETCH: i32 = 300;
+const PAR_STRETCH: i32 = 100;
+const XSPACE: i32 = 500;
+pub(super) const RAGGED_FILL: i32 = 2000;
+pub(super) const CENTERED_FILL: i32 = 4000;
+const INCH: i32 = 72270;
+const CLUB_PENALTY: i64 = 150;
+const WIDOW_PENALTY: i64 = 150;
+const BROKEN_PENALTY: i64 = 100;
+const NO_BREAK: i64 = 10000;
+const DEPLORABLE: i64 = 100000;
 const TITLE_GAP: i32 = 2800;
 const SPACE: i32 = 333;
-const STRETCH: i32 = 166;
-const SHRINK: i32 = 111;
 const LINESKIP: i32 = 100;
 const TOPSKIP: i32 = 1000;
 const PARINDENT: i32 = 1500;
 const LIST_INDENT: i32 = 2500;
 const LABEL_GAP: i32 = 500;
 const QUOTE_INDENT: i32 = 2000;
-const LOOSEST: i64 = 47;
-const WORST_LINE: i64 = 10_010 * 10_010;
+const EMERGENCY_STRETCH: i32 = 3000;
+const INF_BAD: i64 = 10_000;
+const PRETOLERANCE: i64 = 100;
+const TOLERANCE: i64 = 200;
+const SLOPPY_TOLERANCE: i64 = 9999;
+const LINE_PENALTY: i64 = 10;
+const HYPHEN_PENALTY: i64 = 50;
+const ADJ_DEMERITS: i64 = 10_000;
+const DOUBLE_HYPHEN_DEMERITS: i64 = 10_000;
+const FIT_VERY_LOOSE: usize = 0;
+const FIT_LOOSE: usize = 1;
+const FIT_DECENT: usize = 2;
+const FIT_TIGHT: usize = 3;
+const NO_PATH: i64 = i64::MAX / 4;
 const OVERFULL: i64 = 1 << 40;
 
 struct Fit {
     width: i32,
     indent: i32,
     ragged: bool,
-    space: i32,
-    stretch: i32,
-    shrink: i32,
+    space: Space,
+    emergency: i32,
+    fill: i32,
+    fixed: bool,
+    closed: bool,
+    plain_space: i32,
+    wide_space: i32,
 }
 
+/// A font's interword space: its width, stretch, shrink and extra space.
+type Space = (i32, i32, i32, i32);
+
+
 impl Fit {
+    /// The interword glue TeX inserts after a word with this space factor.
     #[inline(always)]
-    fn cost(&self, slack: i64, gaps: i32) -> i64 {
-        if gaps == 0 {
-            return 1_000_000;
+    fn glue(&self, word: &Word) -> (i32, i32, i32) {
+        if self.fixed {
+            return (if word.after >= 2000 { self.wide_space } else { self.plain_space }, 0, 0);
         }
-        let room = (gaps as i64 * if slack >= 0 { self.stretch as i64 } else { self.shrink as i64 }).max(1);
-        if slack.abs() >= room * LOOSEST {
-            return WORST_LINE;
-        }
-        let ratio = slack.abs() * 1000 / room;
-        let badness = (ratio * ratio / 1000 * ratio / 10_000_000).min(10_000);
-        (10 + badness) * (10 + badness)
+        let (space, stretch, shrink, extra) = if word.space.0 == 0 { self.space } else { word.space };
+        let factor = word.after as i32;
+        let width = space + if factor >= 2000 { extra } else { 0 };
+        (width, stretch * factor / 1000, shrink * 1000 / factor)
     }
+}
+
+/// TeX's badness: about 100 times the cube of the glue set ratio.
+#[inline(always)]
+fn badness(excess: i64, room: i64) -> i64 {
+    if excess == 0 {
+        return 0;
+    }
+    if room <= 0 {
+        return INF_BAD;
+    }
+    let ratio = excess * 297 / room;
+    if ratio > 1290 { INF_BAD } else { (ratio * ratio * ratio + 0o400000) / 0o1000000 }
+}
+
+/// What ending a page here costs: a break TeX forbids never wins, and a page
+/// too bad to measure loses to any it can.
+fn page_cost(gap: i32, glue: i32, penalty: i64) -> i64 {
+    if penalty >= NO_BREAK {
+        return i64::MAX;
+    }
+    let bad = badness(gap as i64, glue as i64);
+    if bad >= INF_BAD { DEPLORABLE } else { bad + penalty }
 }
 
 #[derive(Clone, Copy)]
@@ -59,6 +120,12 @@ pub(super) struct Word {
     forced: bool,
     gap: bool,
     hyphen: Option<Bx>,
+    penalty: i16,
+    literal: bool,
+    after: u16,
+    tied: bool,
+    below: i32,
+    space: Space,
 }
 
 #[derive(Clone, Copy)]
@@ -108,15 +175,17 @@ pub(super) struct Store {
     foot_items: Vec<Item>,
     environments: Vec<Environment>,
     theorems: Vec<(&'static [u8], &'static [u8], u32)>,
-    groups: Vec<(Ctx, u8, bool)>,
+    groups: Vec<(Ctx, u8, bool, &'static [u8], &'static [u8], bool)>,
     contents: Vec<commands::Contents>,
     shown: Vec<commands::Contents>,
     contents_text: Vec<u8>,
     wanted: bool,
+    break_best: Vec<(i64, u32, u8)>,
     held: Vec<float::Held>,
     deferred: Vec<float::Held>,
     bottom: Vec<float::Held>,
     held_items: Vec<Item>,
+    gives: Vec<(u32, u32, i32)>,
     held_art: Vec<Art>,
     tail_items: Vec<Item>,
     tail_art: Vec<Art>,
@@ -161,13 +230,32 @@ struct Doc {
     base: i32,
     dep: i32,
     fresh: bool,
+    first_line: Option<i32>,
+    hyphenate: bool,
+    literal_word: bool,
+    sloppy: bool,
+    tie_next: bool,
+    open_par: bool,
+    after_par: bool,
+    open_heading: bool,
+    after_heading: bool,
+    open_vspace: bool,
+    after_vspace: bool,
+    page_shrink: i32,
+    page_over: i32,
+    page_stretch: i32,
+    placed_stretch: i32,
+    line_penalties: (i64, i64),
     preamble: bool,
     open_groups: u32,
     standalone: Option<i32>,
-    notes: u32,
     note_h: i32,
     bottom_h: i32,
+    float_counts: [u32; 3], // top, bottom, total in the current column
     body_font: u8,
+    graphic_paths: &'static [u8],
+    graphic_extensions: &'static [u8],
+    url_setup: bool,
     lead: &'static [u8],
     flow: (i32, i32, i32),
     flowing: bool,
@@ -184,6 +272,8 @@ struct Doc {
     head_sep: i32,
     foot_skip: i32,
     noindent: bool,
+    table_align: u8,
+    line_fill: i32,
     center: bool,
     sections: [u32; 3],
     equation: u32,
@@ -279,7 +369,6 @@ fn ignored_setting(name: &[u8]) -> bool {
             | b"bibliographystyle"
             | b"usetikzlibrary"
             | b"pgfplotsset"
-            | b"graphicspath"
     )
 }
 
@@ -416,7 +505,7 @@ impl Engine {
         self.reset(len);
         self.initialize_counters();
         if self.assets.bibliography.uncertain() {
-            self.note(0);
+            self.note(self.assets.bibliography.warning_position());
         }
         self.lenient = true;
         self.mark = (0, [0; 3]);
@@ -455,10 +544,12 @@ impl Engine {
             preamble: false,
             open_groups: 0,
             standalone: None,
-            notes: 0,
             note_h: 0,
             bottom_h: 0,
             body_font: 0,
+            graphic_paths: b"",
+            url_setup: false,
+            graphic_extensions: b".pdf,.png,.jpg,.mps,.jpeg,.jbig2,.jb2,.PDF,.PNG,.JPG,.JPEG,.JBIG2,.JB2",
             lead: b"",
             flow: (0, 0, 0),
             flowing: false,
@@ -475,6 +566,8 @@ impl Engine {
             head_sep: 2500,
             foot_skip: 3000,
             noindent: false,
+            table_align: b'c',
+            line_fill: 0,
             center: false,
             sections: [0; 3],
             equation: 0,
@@ -489,6 +582,22 @@ impl Engine {
             column: 0,
             column_gap: 0,
             baseline: 1200,
+            first_line: None,
+            hyphenate: true,
+            literal_word: false,
+            sloppy: false,
+            tie_next: false,
+            open_par: false,
+            after_par: false,
+            open_heading: false,
+            after_heading: false,
+            open_vspace: false,
+            after_vspace: false,
+            page_shrink: 0,
+            page_over: 0,
+            page_stretch: 0,
+            placed_stretch: 0,
+            line_penalties: (0, 0),
             line_end: 0,
             topskip: TOPSKIP,
             frame_left: 0,
@@ -500,11 +609,12 @@ impl Engine {
             table_gap: 0,
             float_gap: 0,
             caption_gap: 0,
-            heading_gaps: [(1500, 900), (1200, 600), (1000, 400)],
+            heading_gaps: [(1507, 990), (1399, 646), (1399, 646)],
             figures: 0,
             tables: 0,
             algorithms: 0,
             float: 0,
+            float_counts: [0; 3],
         };
         self.set_paper(&mut d, b"");
         let done = self.blocks(&mut d, 0, 0, b"");
@@ -514,8 +624,10 @@ impl Engine {
                 d.page = self.increment_counter(b"page")?.max(0) as u32;
                 d.column = 0;
                 self.fit_frame(&mut d);
-                self.place_held(&mut d);
-                self.place_deferred(&mut d);
+                d.float_counts = [0; 3];
+                // Float-only pages must progress even when text-page limits are zero.
+                self.place_held(&mut d, true);
+                self.place_deferred(&mut d, true);
                 self.finish_page(&mut d)?;
             }
             Ok(())
@@ -581,7 +693,10 @@ impl Engine {
         self.doc.h = if a4 { 845047 } else { 794970 } / pt;
         d.columns = if two { 2 } else { 1 };
         d.frame_w = unit(if two { 470 } else { text_w });
-        d.frame_left = (self.doc.w - d.frame_w) / 2;
+        // \\@settopoint leaves the side margin a whole number of points.
+        let paper = if a4 { 597508 } else { 614295 };
+        let side = (paper - 2 * INCH - d.frame_w * pt) / 2 / 1000 * 1000;
+        d.frame_left = (INCH + side) / pt;
         d.frame_h = unit(frame_h);
         d.frame_top = unit(frame_top);
         d.column_gap = unit(10);
@@ -681,6 +796,7 @@ impl Engine {
             match name {
                 b"" | b"tikz" | b"pgfplots" => {}
                 b"geometry" => self.set_margins(d, options),
+                b"biblatex" => self.initialize_biblatex_counters(),
                 b"parskip" => {
                     d.parskip = 618;
                     d.parindent = 0;
@@ -842,6 +958,9 @@ impl Engine {
         loop {
             self.block_reset();
             self.skip_ws();
+            d.after_par = core::mem::take(&mut d.open_par);
+            d.after_heading = core::mem::take(&mut d.open_heading);
+            d.after_vspace = core::mem::take(&mut d.open_vspace);
             if self.at_end() {
                 if env.is_empty() {
                     self.depth -= 1;
@@ -865,8 +984,8 @@ impl Engine {
             if self.peek() == b'}' && d.open_groups > 0 {
                 d.open_groups -= 1;
                 self.pos += 1;
-                if let Some((ctx, font, center)) = self.store.groups.pop() {
-                    (d.ctx, d.body_font, d.center) = (ctx, font, center);
+                if let Some((ctx, font, center, paths, extensions, urls)) = self.store.groups.pop() {
+                    (d.ctx, d.body_font, d.center, d.graphic_paths, d.graphic_extensions, d.url_setup) = (ctx, font, center, paths, extensions, urls);
                 }
                 continue;
             }
@@ -886,6 +1005,7 @@ impl Engine {
             self.pos += 1;
             let name = self.read_name();
             if self.control_command(name)? || self.page_setting(d, name)? {
+                Self::keep_spacing(d);
                 continue;
             }
             match name {
@@ -953,6 +1073,10 @@ impl Engine {
                     self.pop_src(source);
                     done?;
                 }
+                b"biburlsetup" => d.url_setup = true,
+                b"graphicspath" | b"DeclareGraphicsExtensions" => self.graphic_setting(d, name)?,
+                b"makeatletter" => self.at_letter = true,
+                b"makeatother" => self.at_letter = false,
                 b"documentclass" => {
                     self.skip_ws();
                     let options = if self.peek() == b'[' { self.loose_options() } else { b"" };
@@ -1007,7 +1131,9 @@ impl Engine {
                         self.new_page(d)?;
                     }
                 }
-                b"par" | b"raggedbottom" | b"flushbottom" | b"sloppy" | b"raggedright" | b"protect" => {}
+                b"par" | b"raggedbottom" | b"flushbottom" | b"raggedright" | b"protect" => {}
+                b"sloppy" => d.sloppy = true,
+                b"fussy" => d.sloppy = false,
                 b"centering" => d.center = true,
                 b"hyphenation" => self.hyphenation_exceptions()?,
                 b"caption" => self.caption(d, left, width)?,
@@ -1044,6 +1170,7 @@ impl Engine {
                     self.skip_star();
                     let c = d.ctx;
                     d.skip += self.length_arg(&c)?;
+                    d.open_vspace = true;
                 }
                 b"[" => {
                     let c = self.restyle(&d.ctx.clone(), ST_D);
@@ -1095,6 +1222,24 @@ impl Engine {
                     d.skip += 600;
                 }
                 b"titlepage" => self.title_block(d)?,
+                b"\\" => {
+                    self.skip_star();
+                    d.skip += self.bracket_length(&d.ctx.clone())?;
+                }
+                b"hyphenpenalty" | b"exhyphenpenalty" => {
+                    self.skip_ws();
+                    if self.peek() == b'=' {
+                        self.pos += 1;
+                    }
+                    let at = self.pos;
+                    self.skip_ws();
+                    while self.peek().is_ascii_digit() || self.peek() == b'-' {
+                        self.pos += 1;
+                    }
+                    if name == b"hyphenpenalty" {
+                        d.hyphenate = figure::length_pt(self.slice(at, self.pos)).is_none_or(|v| v < 10000.0);
+                    }
+                }
                 b"parindent" | b"parskip" | b"itemsep" | b"topsep" | b"parsep" | b"baselineskip" | b"tabcolsep" | b"arraystretch"
                 | b"columnsep" => {
                     self.skip_ws();
@@ -1197,10 +1342,12 @@ impl Engine {
                         if open_ended(def.body) {
                             let body = self.expansion(&def, false)?;
                             self.splice(&body[..body.len() - 1])?;
+                            Self::keep_spacing(d);
                             continue;
                         }
                         if block_body(def.body) {
                             self.enter()?;
+                            Self::keep_spacing(d);
                             let body = self.expansion(&def, false)?;
                             let body = self.source_copy(&body[..body.len() - 1]);
                             let src = self.push_src(body.as_ptr(), body.len());
@@ -1231,6 +1378,13 @@ impl Engine {
     }
 
     fn begin_block(&mut self, d: &mut Doc, left: i32, narrow: i32, start: usize) -> R<()> {
+        let settings = (d.graphic_paths, d.graphic_extensions, d.url_setup);
+        let done = self.begin_block_content(d, left, narrow, start);
+        (d.graphic_paths, d.graphic_extensions, d.url_setup) = settings;
+        done
+    }
+
+    fn begin_block_content(&mut self, d: &mut Doc, left: i32, narrow: i32, start: usize) -> R<()> {
         let (s, e) = self.raw_group()?;
         let name = self.slice(s, e);
         let width = d.text_w - narrow;
@@ -1246,6 +1400,7 @@ impl Engine {
                     d.bare_list = figure::blank_label(self.loose_options());
                 }
                 if name == b"thebibliography" {
+                    d.url_setup |= self.counter_index(b"biburlbreakpenalty").is_some();
                     self.skip_ws();
                     if self.peek() == b'{' {
                         self.loose_argument();
@@ -1311,12 +1466,7 @@ impl Engine {
                 self.blocks(d, left, narrow, name)?;
                 self.close_env(name)?;
             }
-            b"minipage" => {
-                self.skip_options();
-                self.loose_argument();
-                self.blocks(d, left, narrow, name)?;
-                self.close_env(name)?;
-            }
+            b"minipage" => self.minipage_row(d, left, width)?,
             b"proof" => {
                 self.skip_options();
                 d.lead = b"Proof.";
@@ -1347,12 +1497,18 @@ impl Engine {
             }
             b"center" => {
                 let outer = d.center;
+                let gap = CENTER_GAP + if d.after_par { 0 } else { PARTOP_GAP };
+                let give = CENTER_GIVE + if d.after_par { 0 } else { PARTOP_GIVE };
+                let stretch = CENTER_STRETCH + if d.after_par { 0 } else { PARTOP_STRETCH };
                 d.center = true;
-                d.skip = d.skip.max(CENTER_GAP);
+                if !d.after_heading {
+                    self.add_space(d, gap, stretch, give);
+                }
                 self.blocks(d, left, narrow, name)?;
                 self.close_env(name)?;
                 d.center = outer;
-                d.skip = d.skip.max(CENTER_GAP);
+                self.add_space(d, gap, stretch, give);
+                d.noindent = !self.blank_ahead();
             }
             b"quote" | b"quotation" => self.quote_block(d, left, narrow, name)?,
             b"figure" | b"figure*" | b"table" | b"table*" | b"algorithm" | b"algorithm*" => self.float_block(d, left, narrow, name)?,
@@ -1546,9 +1702,11 @@ impl Engine {
     fn sub_text(&mut self, d: &mut Doc, text: &'static [u8], c: &Ctx, font: u8) -> R<()> {
         let src = self.push_src(text.as_ptr(), text.len());
         let mut font = font;
-        self.inline(d, c, &mut font, false)?;
+        let settings = (d.graphic_paths, d.graphic_extensions, d.url_setup);
+        let done = self.inline(d, c, &mut font, false);
+        (d.graphic_paths, d.graphic_extensions, d.url_setup) = settings;
         self.pop_src(src);
-        Ok(())
+        done
     }
 
     fn title_block(&mut self, d: &mut Doc) -> R<()> {
@@ -1563,7 +1721,7 @@ impl Engine {
         let single = d.columns == 1;
         let row_gap = if single { d.parskip } else { 0 };
         d.fresh = false;
-        d.skip += TITLE_GAP + if single { self.pt_units(10.0) } else { 0 };
+        d.skip += TITLE_GAP - self.pt_units(10.0) + if single { self.pt_units(12.0) } else { 0 };
         for (text, size, gap) in rows {
             if text.is_empty() {
                 continue;
@@ -1577,9 +1735,10 @@ impl Engine {
         }
         d.skip += 1500
             + match (single, d.parskip > 0) {
-                (true, true) => -d.parskip * 3 / 4,
+                (true, true) => self.pt_units(10.0) - d.parskip * 3 / 4,
+                (true, false) => self.pt_units(10.0),
                 (false, false) => self.pt_units(10.5),
-                _ => 0,
+                (false, true) => 0,
             };
         d.noindent = true;
         d.left = left;
@@ -1628,7 +1787,9 @@ impl Engine {
         let mut font = FONT_MAIN_BOLD;
         self.inline(d, &c, &mut font, true)?;
         self.flush_word(d, false);
-        d.skip += before;
+        if !d.after_heading {
+            self.add_space(d, before, HEADING_STRETCH, HEADING_GIVE);
+        }
         if !d.fresh && d.base.saturating_add(d.skip).saturating_add(4 * d.baseline) > d.text_h {
             self.new_page(d)?;
         }
@@ -1637,6 +1798,8 @@ impl Engine {
             self.add_contents(d, level, title);
         }
         d.skip += after;
+        self.give_space(d, HEADING_AFTER_STRETCH, 0);
+        d.open_heading = true;
         d.noindent = true;
         Ok(())
     }
@@ -1658,16 +1821,67 @@ impl Engine {
             d.skip += d.parskip;
         }
         d.noindent = false;
+        if !d.fresh {
+            self.give_space(d, PAR_STRETCH, 0);
+        }
         d.flow = (left, width, indent);
         d.flowing = true;
         self.inline(d, &c, &mut font, false)?;
         d.flowing = false;
         self.flush_word(d, false);
         self.set_lines(d, &c, left, width, d.flow.2, d.center, d.center);
+        d.open_par = !self.blank_behind();
         Ok(())
     }
 
+    /// Expanding a macro places nothing, so what came before it still
+    /// decides the spacing of whatever it expands to.
+    fn keep_spacing(d: &mut Doc) {
+        d.open_par = d.after_par;
+        d.open_heading = d.after_heading;
+        d.open_vspace = d.after_vspace;
+    }
+
+    fn blank_behind(&self) -> bool {
+        let mut at = self.pos;
+        let mut lines = 0;
+        while at > 0 {
+            at -= 1;
+            match self.slice(at, at + 1).first() {
+                Some(b'\n') => lines += 1,
+                Some(b' ' | b'\t' | b'\r') => {}
+                _ => break,
+            }
+        }
+        lines >= 2
+    }
+
+    /// The \\baselineskip LaTeX pairs with each font size, in points.
+    fn size_baseline(&self, size: u16, normal: i32) -> i32 {
+        let pt = self.doc.pt;
+        let points = size as i32 * pt;
+        let rows: [(i32, f64); 12] = [
+            (5000, 6.0),
+            (6000, 7.0),
+            (7000, 8.0),
+            (8000, 9.5),
+            (9000, 11.0),
+            (10000, 12.0),
+            (10950, 13.6),
+            (12000, if pt == 12 { 14.5 } else { 14.0 }),
+            (14400, 18.0),
+            (17280, 22.0),
+            (20740, 25.0),
+            (24880, 30.0),
+        ];
+        let Some(&(_, skip)) = rows.iter().find(|row| (row.0 - points).abs() <= pt) else {
+            return normal;
+        };
+        self.pt_units(skip)
+    }
+
     fn add_kern(&mut self, d: &mut Doc, kern: i32) {
+        self.break_pair();
         let mut t = d.word.take().unwrap_or_else(|| self.close(self.end(), 0, 0, 0));
         t.w += kern;
         d.word = Some(t);
@@ -1701,10 +1915,38 @@ impl Engine {
         self.put_char(d, c, font, b'0' as u32 + n % 10)
     }
 
+    /// The space factor left by a word, following TeX's \\sfcode rules.
+    fn space_factor(&self, b: Bx) -> u16 {
+        let mut factor = 1000;
+        for it in &self.items[b.s as usize..b.e as usize] {
+            if it.kind != IT_GLYPH {
+                continue;
+            }
+            let code: u16 = match it.b {
+                0 => {
+                    factor = 1000;
+                    continue;
+                }
+                0x2e | 0x3f | 0x21 => 3000,
+                0x3a => 2000,
+                0x3b => 1500,
+                0x2c => 1250,
+                0x29 | 0x27 | 0x5d | 0x22 | 0x2019 | 0x201d => continue,
+                0x41..=0x5a => 999,
+                _ => 1000,
+            };
+            factor = if code > 1000 && factor < 1000 { 1000 } else { code };
+        }
+        factor
+    }
+
     fn flush_word(&mut self, d: &mut Doc, forced: bool) {
         if let Some(bx) = d.word.take() {
-            self.words.push(Word { bx, forced, gap: !d.glue_next, hyphen: None });
+            let after = self.space_factor(bx);
+            self.words.push(Word { bx, forced, gap: !d.glue_next, hyphen: None, penalty: 0, literal: d.literal_word, after, tied: d.tie_next, below: 0, space: (0, 0, 0, 0) });
             d.glue_next = false;
+            d.tie_next = false;
+            d.literal_word = false;
         } else if forced {
             if let Some(last) = self.words.last_mut() {
                 last.forced = true;
@@ -1712,7 +1954,41 @@ impl Engine {
         }
     }
 
+    /// Where the control word at the cursor ends, or nowhere for a control
+    /// symbol, which keeps the space after it.
+    fn control_word_end(&self) -> usize {
+        let mut at = 1;
+        if self.peek_at(at) == 0x1f {
+            at += 1;
+            while self.pos + at < self.len && self.peek_at(at) != 0x1f {
+                at += 1;
+            }
+            return self.pos + at + usize::from(self.pos + at < self.len);
+        }
+        while self.peek_at(at).is_ascii_alphabetic() || (self.at_letter && self.peek_at(at) == b'@') {
+            at += 1;
+        }
+        if at == 1 { usize::MAX } else { self.pos + at }
+    }
+
+    /// Sets the space after the last word in this font. A control space
+    /// takes no account of the space factor.
+    fn set_space(&mut self, font: u8, scale: u16, factor: Option<u16>) {
+        let space = self.space_at(font, scale);
+        if let Some(word) = self.words.last_mut() {
+            word.space = space;
+            word.after = factor.unwrap_or(word.after);
+        }
+    }
+
     fn inline(&mut self, d: &mut Doc, c: &Ctx, font: &mut u8, group: bool) -> R<()> {
+        let settings = (d.graphic_paths, d.graphic_extensions, d.url_setup);
+        let done = self.inline_content(d, c, font, group);
+        if group { (d.graphic_paths, d.graphic_extensions, d.url_setup) = settings; }
+        done
+    }
+
+    fn inline_content(&mut self, d: &mut Doc, c: &Ctx, font: &mut u8, group: bool) -> R<()> {
         let mut scoped = *c;
         let c = &mut scoped;
         loop {
@@ -1747,6 +2023,7 @@ impl Engine {
                         self.pos += 1;
                     }
                     self.flush_word(d, false);
+                    self.set_space(*font, c.scale, None);
                     d.glue_next = false;
                     if breaks {
                         return Ok(());
@@ -1760,7 +2037,13 @@ impl Engine {
                 }
                 b'~' => {
                     self.pos += 1;
-                    self.add_kern(d, sc(SPACE, c.scale));
+                    if d.word.is_some() {
+                        self.flush_word(d, false);
+                        self.set_space(*font, c.scale, Some(1000));
+                        d.tie_next = true;
+                    } else {
+                        self.add_kern(d, sc(SPACE, c.scale));
+                    }
                 }
                 b'$' => {
                     if self.peek_at(1) == b'$' {
@@ -1796,8 +2079,12 @@ impl Engine {
                     self.put_char(d, c, *font, cp)?;
                 }
                 b'\\' => {
+                    let (source, word_end) = (self.p, self.control_word_end());
                     if self.inline_command(d, c, font, group)? {
                         return Ok(());
+                    }
+                    if self.p == source && self.pos == word_end && !self.blank_ahead() {
+                        self.skip_ws();
                     }
                 }
                 b'&' | b'^' | b'_' | b'#' => {
@@ -1839,7 +2126,22 @@ impl Engine {
         let mut inner = font;
         self.inline(d, c, &mut inner, true)?;
         self.depth -= 1;
+        if inner == FONT_MAIN_ITALIC && !matches!(self.peek(), b'.' | b',') {
+            self.italic_correction(d, c);
+        }
         Ok(())
+    }
+
+    /// TeX's \/ after the last letter of a word.
+    fn italic_correction(&mut self, d: &mut Doc, c: &Ctx) {
+        let Some(word) = d.word else {
+            return;
+        };
+        let Some(item) = self.items[..word.e as usize].last().filter(|it| it.kind == IT_GLYPH) else {
+            return;
+        };
+        let slant = self.glyph_metric(item.a as usize).it as i32;
+        self.add_kern(d, sc(slant, c.scale));
     }
 
     #[inline(never)]
@@ -1906,8 +2208,12 @@ impl Engine {
             }
             b"\\" => {
                 self.skip_star();
-                self.bracket_length(c)?;
+                let gap = self.bracket_length(c)?;
                 self.flush_word(d, true);
+                match self.words.last_mut() {
+                    Some(word) => word.below += gap,
+                    None => d.skip += gap,
+                }
                 return Ok(false);
             }
             b"(" => {
@@ -1934,6 +2240,11 @@ impl Engine {
                 for ch in name {
                     self.put_char(d, c, *font, *ch as u32)?;
                 }
+            }
+            b" " | b"\n" => {
+                self.flush_word(d, false);
+                self.set_space(*font, c.scale, Some(1000));
+                return Ok(false);
             }
             _ => {
                 if let Some(size) = font_size(name, self.doc.pt) {
@@ -2032,6 +2343,9 @@ impl Engine {
             self.place_line(d, 0, 0);
         }
         d.skip += above;
+        if !short && !d.fresh {
+            self.give_space(d, DISPLAY_STRETCH, DISPLAY_GIVE);
+        }
         let h = if number.is_some() { b.h.max(sc(750, d.ctx.scale)) } else { b.h };
         let dep = if number.is_some() { b.d.max(sc(250, d.ctx.scale)) } else { b.d };
         let y = self.place_line(d, h, dep);
@@ -2052,6 +2366,8 @@ impl Engine {
             d.word = saved;
         }
         d.skip += below;
+        let (stretch, give) = if short { (SHORT_DISPLAY_STRETCH, SHORT_DISPLAY_GIVE) } else { (DISPLAY_STRETCH, DISPLAY_GIVE) };
+        self.give_space(d, stretch, give);
         d.line_end = 0;
     }
 
@@ -2060,18 +2376,24 @@ impl Engine {
             let extent = d.dep.saturating_add(h);
             let advance = if extent > d.baseline { extent.saturating_add(LINESKIP) } else { d.baseline };
             let y = d.base.saturating_add(advance).saturating_add(d.skip);
-            if y.saturating_add(dep) <= d.text_h - d.note_h - d.bottom_h {
+            let limit = d.text_h - d.note_h - d.bottom_h;
+            let over = y.saturating_add((dep - d.topskip / 2).max(0)).saturating_sub(limit);
+            if Self::line_stays(d, over) {
                 d.base = y;
                 d.dep = dep;
                 d.skip = 0;
+                d.page_over = d.page_over.max(over);
+                d.placed_stretch = d.page_stretch;
                 return y;
             }
             let _ = self.new_page(d);
         }
+        d.line_penalties = (0, 0);
         d.fresh = false;
         d.skip = 0;
         d.base = h.max(d.topskip);
         d.dep = dep;
+        d.first_line.get_or_insert(d.base);
         d.base
     }
 
@@ -2114,29 +2436,90 @@ impl Engine {
         d.word = saved;
     }
 
+    /// TeX's \\addvspace, which keeps the larger of two skips unless a
+    /// \\vspace stands between them, recording how far the page may shrink it.
+    fn add_space(&mut self, d: &mut Doc, gap: i32, stretch: i32, give: i32) {
+        let before = d.skip;
+        d.skip = if d.after_vspace { d.skip + gap } else { d.skip.max(gap) };
+        if d.skip > before && !d.fresh {
+            self.give_space(d, stretch, give);
+        }
+    }
+
+    fn give_space(&mut self, d: &mut Doc, stretch: i32, give: i32) {
+        if d.text_h < float::WIDE / 2 {
+            self.store.gives.push((self.doc.items.len() as u32, self.doc.art.len() as u32, give));
+            d.page_shrink += give;
+            d.page_stretch += stretch;
+        }
+    }
+
+    /// TeX's page builder: ending the page after this line must cost no more
+    /// than ending it before, where a break costs its badness and penalty.
+    fn line_stays(d: &mut Doc, over: i32) -> bool {
+        let (before, after) = core::mem::take(&mut d.line_penalties);
+        if over > d.page_shrink {
+            return false;
+        }
+        if over <= 0 && over.saturating_add(d.baseline) <= d.page_shrink {
+            return true;
+        }
+        let short = (d.text_h - d.note_h - d.bottom_h).saturating_sub(d.base);
+        let here = if over > 0 { page_cost(over, d.page_shrink, after) } else { page_cost(-over, d.page_stretch, after) };
+        here <= page_cost(short, d.placed_stretch, before)
+    }
+
+    /// Takes a page that ran over back to its height, shrinking only the glue
+    /// that allows it, in proportion, as TeX sets the page box.
+    fn settle_page(&mut self, d: &mut Doc) {
+        let gives = core::mem::take(&mut self.store.gives);
+        d.page_stretch = 0;
+        d.placed_stretch = 0;
+        let (over, shrink) = (core::mem::take(&mut d.page_over) as i64, core::mem::take(&mut d.page_shrink) as i64);
+        if over <= 0 || shrink <= 0 {
+            return;
+        }
+        let mut given = 0i64;
+        for (i, &(items, art, give)) in gives.iter().enumerate() {
+            given += give as i64;
+            let moved = (over * given / shrink) as i32;
+            let next = gives.get(i + 1).map_or((self.doc.items.len() as u32, self.doc.art.len() as u32), |g| (g.0, g.1));
+            // Recovering from an error can drop what a mark pointed at.
+            for it in self.doc.items.get_mut(items as usize..next.0 as usize).unwrap_or_default() {
+                it.y -= moved;
+            }
+            for a in self.doc.art.get_mut(art as usize..next.1 as usize).unwrap_or_default() {
+                a.y -= moved;
+            }
+        }
+    }
+
     fn new_page(&mut self, d: &mut Doc) -> R<()> {
+        self.settle_page(d);
         self.finish_bottom(d);
         self.finish_notes(d);
         d.fresh = true;
         d.skip = 0;
         d.base = 0;
         d.dep = 0;
+        d.float_counts = [0; 3];
         if d.columns == 2 && d.column == 0 {
             d.column = 1;
             d.left = d.frame_left + d.text_w + d.column_gap;
-            self.place_deferred(d);
+            self.place_deferred(d, false);
             return Ok(());
         }
         self.finish_page(d)?;
         d.page = self.increment_counter(b"page")?.max(0) as u32;
         d.column = 0;
         self.fit_frame(d);
-        self.place_held(d);
-        self.place_deferred(d);
+        self.place_held(d, false);
+        self.place_deferred(d, false);
         Ok(())
     }
 
     fn finish_page(&mut self, d: &mut Doc) -> R<()> {
+        self.settle_page(d);
         d.page = self.counter_value(b"page").max(0) as u32;
         self.finish_bottom(d);
         self.finish_notes(d);
@@ -2146,51 +2529,100 @@ impl Engine {
         Ok(())
     }
 
-    fn all_breaks(&mut self, fit: &Fit) {
+    /// Knuth and Plass: finds the breaks with the fewest demerits, keeping the
+    /// best path for each fitness class so adjacent lines can be compared.
+    fn all_breaks(&mut self, fit: &Fit, threshold: i64, rescue: bool) -> bool {
         let n = self.words.len();
         let words = &self.words[..n];
-        let costs = &mut self.line_costs;
-        costs.clear();
-        costs.push((0, 0));
+        let best = &mut self.store.break_best;
+        best.clear();
+        best.resize((n + 1) * 4, (NO_PATH, 0u32, 0u8));
+        best[FIT_DECENT].0 = 0;
         for j in 1..=n {
-            let mut best = (i64::MAX, 0u32);
-            let mut natural = 0;
-            let mut gaps = 0;
-            let last = j == n || words[j - 1].forced;
+            if j < n && (words[j].tied || words[j - 1].penalty >= 10000) {
+                continue;
+            }
+            let penalty = if j < n { words[j - 1].penalty as i64 } else { 0 };
+            let forced = j == n || words[j - 1].forced || penalty <= -10000;
+            let discretionary = if j < n { words[j - 1].hyphen.map_or(0, |b| b.w) } else { 0 };
+            let (mut natural, mut stretch, mut shrink) = (0i64, 0i64, 0i64);
             for i in (0..j).rev() {
                 let word = &words[i];
                 if i + 1 < j && word.forced {
                     break;
                 }
-                natural += word.bx.w;
+                natural += word.bx.w as i64;
                 if i + 1 < j && words[i + 1].gap {
-                    natural += fit.space;
-                    gaps += 1;
+                    let (w, more, less) = fit.glue(word);
+                    natural += w as i64;
+                    stretch += more as i64;
+                    shrink += less as i64;
                 }
-                let avail = fit.width - if i == 0 { fit.indent } else { 0 };
-                let discretionary = if j < n { words[j - 1].hyphen.map_or(0, |b| b.w) } else { 0 };
-                let line_width = natural + discretionary;
-                let over = line_width - gaps * fit.shrink - avail;
+                let avail = (fit.width - if i == 0 { fit.indent } else { 0 }) as i64;
+                let line_width = natural + discretionary as i64;
+                let excess = avail - line_width;
+                let over = -excess - shrink;
                 if over > 0 && i + 1 < j {
                     break;
                 }
-                let slack = (avail - line_width) as i64;
-                let cost = if over > 0 {
-                    OVERFULL + over as i64
-                } else if last {
-                    0
-                } else if fit.ragged {
-                    slack * slack / 1000
+                if best[i * 4..i * 4 + 4].iter().all(|cell| cell.0 >= NO_PATH) {
+                    continue;
+                }
+                let (bad, class) = if excess >= 0 {
+                    if (forced && !fit.closed) || (fit.ragged && fit.fill == 0) {
+                        (0, FIT_DECENT)
+                    } else {
+                        let bad = badness(excess, stretch + (fit.emergency + fit.fill) as i64);
+                        (bad, if bad > 99 { FIT_VERY_LOOSE } else if bad > 12 { FIT_LOOSE } else { FIT_DECENT })
+                    }
                 } else {
-                    fit.cost(slack, gaps)
+                    let bad = if over > 0 { INF_BAD + 1 } else { badness(-excess, shrink) };
+                    (bad, if bad > 12 { FIT_TIGHT } else { FIT_DECENT })
                 };
-                let total = costs[i].0.saturating_add(cost).saturating_add(if discretionary > 0 { 2500 } else { 0 });
-                if total < best.0 {
-                    best = (total, i as u32);
+                if bad > threshold && !rescue {
+                    continue;
+                }
+                let line = if over > 0 {
+                    OVERFULL + over
+                } else {
+                    let demerit = LINE_PENALTY + bad;
+                    demerit * demerit + if discretionary > 0 { HYPHEN_PENALTY * HYPHEN_PENALTY } else { 0 }
+                };
+                let line = line + if penalty >= 0 { penalty * penalty } else if penalty > -10000 { -penalty * penalty } else { 0 };
+                let doubled = discretionary > 0 && i > 0 && words[i - 1].hyphen.is_some();
+                for from in 0..4 {
+                    let previous = best[i * 4 + from].0;
+                    if previous >= NO_PATH {
+                        continue;
+                    }
+                    let clash = if from.abs_diff(class) > 1 { ADJ_DEMERITS } else { 0 };
+                    let hyphens = if doubled { DOUBLE_HYPHEN_DEMERITS } else { 0 };
+                    let total = previous.saturating_add(line).saturating_add(clash + hyphens);
+                    if total < best[j * 4 + class].0 {
+                        best[j * 4 + class] = (total, i as u32, from as u8);
+                    }
                 }
             }
-            costs.push(best);
         }
+        let mut class = 0;
+        for at in 1..4 {
+            if best[n * 4 + at].0 < best[n * 4 + class].0 {
+                class = at;
+            }
+        }
+        if best[n * 4 + class].0 >= NO_PATH {
+            return false;
+        }
+        self.line_costs.clear();
+        self.line_costs.resize(n + 1, (0, 0));
+        let mut j = n;
+        while j > 0 {
+            let (cost, from, previous) = best[j * 4 + class];
+            self.line_costs[j] = (cost, from);
+            j = from as usize;
+            class = previous as usize;
+        }
+        true
     }
 
     fn set_lines(&mut self, d: &mut Doc, c: &Ctx, left: i32, width: i32, indent: i32, ragged: bool, center: bool) {
@@ -2198,13 +2630,29 @@ impl Engine {
         if n == 0 {
             return;
         }
-        let space = sc(SPACE, c.scale);
-        let shrink = sc(SHRINK, c.scale);
-        let fit = Fit { width, indent, ragged, space, stretch: sc(STRETCH, c.scale), shrink };
-        self.all_breaks(&fit);
-        if !ragged && self.line_costs[n].0 > 1_000_000 && self.hyphenate_words() {
-            n = self.words.len();
-            self.all_breaks(&fit);
+        let mut fit = Fit {
+            width,
+            indent,
+            ragged,
+            space: self.space_at(FONT_MAIN_REGULAR, c.scale),
+            emergency: 0,
+            fill: sc(d.line_fill, c.scale),
+            fixed: d.line_fill > 0,
+            closed: d.line_fill > RAGGED_FILL,
+            plain_space: sc(SPACE, c.scale),
+            wide_space: sc(XSPACE, c.scale),
+        };
+        let tolerance = if d.sloppy { SLOPPY_TOLERANCE } else { TOLERANCE };
+        if !self.all_breaks(&fit, PRETOLERANCE, false) {
+            if !ragged && d.hyphenate && self.hyphenate_words() {
+                n = self.words.len();
+            }
+            if !self.all_breaks(&fit, tolerance, false) {
+                fit.emergency = if d.sloppy { sc(EMERGENCY_STRETCH, c.scale) } else { 0 };
+                if fit.emergency == 0 || !self.all_breaks(&fit, tolerance, false) {
+                    self.all_breaks(&fit, i64::MAX, true);
+                }
+            }
         }
         self.line_ends.clear();
         let mut j = n;
@@ -2212,8 +2660,15 @@ impl Engine {
             self.line_ends.push(j as u32);
             j = self.line_costs[j].1 as usize;
         }
+        let body_baseline = d.baseline;
+        let body_size = self.size_baseline(font_size(b"normalsize", self.doc.pt).unwrap_or(10000), d.baseline);
+        if body_size == body_baseline {
+            d.baseline = self.size_baseline(c.size, d.baseline);
+        }
         let mut start = 0;
-        for k in (0..self.line_ends.len()).rev() {
+        let lines = self.line_ends.len();
+        let (mut line, mut hyphened) = (0, false);
+        for k in (0..lines).rev() {
             let end = self.line_ends[k] as usize;
             let (mut natural, mut h, mut dep) = (0, 0, 0);
             for w in &self.words[start..end] {
@@ -2221,34 +2676,54 @@ impl Engine {
                 h = h.max(w.bx.h);
                 dep = dep.max(w.bx.d);
             }
-            let gaps = self.words[start + 1..end].iter().filter(|w| w.gap).count() as i32;
-            natural += gaps * space;
+            let (mut stretch, mut shrink) = (0, 0);
+            for at in start + 1..end {
+                if self.words[at].gap {
+                    let (w, more, less) = fit.glue(&self.words[at - 1]);
+                    natural += w;
+                    stretch += more;
+                    shrink += less;
+                }
+            }
             let hyphen = if end < n { self.words[end - 1].hyphen } else { None };
             natural += hyphen.map_or(0, |b| b.w);
             let first = if start == 0 { indent } else { 0 };
             let last = end == n || self.words[end - 1].forced;
-            let extra = if ragged || last || gaps == 0 { 0 } else { (width - first - natural).max(-gaps * shrink) };
+            let excess = width - first - natural;
+            let extra = if ragged || (last && excess > 0) { 0 } else { excess.max(-shrink) };
+            let share = if extra > 0 { stretch } else { shrink };
             if !self.store.notes.is_empty() {
                 let from = self.words[start].bx.s;
                 let to = self.words[end - 1].bx.e;
                 let _ = self.reserve_notes(d, from, to, h + dep);
             }
+            let between = |line: usize, broken: bool| {
+                (if line == 0 { CLUB_PENALTY } else { 0 }) + (if line + 2 == lines { WIDOW_PENALTY } else { 0 }) + (if broken { BROKEN_PENALTY } else { 0 })
+            };
+            let before = if line > 0 { between(line - 1, hyphened) } else if d.after_heading { NO_BREAK } else { 0 };
+            hyphened = hyphen.is_some();
+            d.line_penalties = (before, if line + 1 < lines { between(line, hyphened) } else { 0 });
+            line += 1;
             let y = self.place_line(d, h, dep);
+            d.skip += self.words[end - 1].below;
             let mut x = left + first;
             if center {
                 x = left + (width - natural) / 2;
             }
-            let mut gap_index = 0;
+            let (mut given, mut spent) = (0i64, 0);
             for at in start..end {
                 let w = self.words[at];
                 self.commit(d, w.bx.s, w.bx.e, x, y);
                 x += w.bx.w;
                 if at + 1 < end && self.words[at + 1].gap {
-                    x += space;
-                    if gaps > 0 {
-                        x += extra * (gap_index + 1) / gaps - extra * gap_index / gaps;
+                    let (width, more, less) = fit.glue(&w);
+                    x += width;
+                    if share > 0 {
+                        given += if extra > 0 { more } else { less } as i64;
+                        let total = (extra as i64 * given / share as i64) as i32;
+                        x += total - spent;
+                        spent = total;
                     }
-                    gap_index += 1;
                 }
             }
             if let Some(mark) = hyphen {
@@ -2260,6 +2735,7 @@ impl Engine {
             d.line_end = if center { left + (width + natural) / 2 } else { left + first + natural + extra };
             start = end;
         }
+        d.baseline = body_baseline;
         self.words.clear();
     }
 }

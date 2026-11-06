@@ -1,11 +1,44 @@
 use super::*;
-use alloc::{format, sync::Arc};
+use alloc::{borrow::Cow, format, sync::Arc};
 
 #[derive(Default)]
 pub(super) struct Assets {
     pub(super) bibliography: super::bibliography::Bibliography,
     pub(super) files: Vec<(Vec<u8>, Vec<u8>)>,
     pub(super) active: Vec<Vec<u8>>,
+    image_cache: Vec<(usize, Option<Image>, usize)>,
+    image_cache_bytes: usize,
+}
+
+const IMAGE_CACHE_BYTES: usize = 16 * 1024 * 1024;
+const IMAGE_CACHE_ENTRIES: usize = 32;
+
+impl Assets {
+    fn clear_image_cache(&mut self) {
+        self.image_cache.clear();
+        self.image_cache_bytes = 0;
+    }
+
+    pub(super) fn image(&mut self, index: usize) -> Option<Image> {
+        if let Some(at) = self.image_cache.iter().position(|entry| entry.0 == index) {
+            let entry = self.image_cache.remove(at);
+            let image = entry.1.clone();
+            self.image_cache.push(entry);
+            return image;
+        }
+        let image = Image::parse(&self.files.get(index)?.1);
+        let bytes = image.as_ref().map_or(0, |image| image.url.len() + image.data.len() + image.alpha.len());
+        if bytes <= IMAGE_CACHE_BYTES {
+            while !self.image_cache.is_empty() && (self.image_cache.len() >= IMAGE_CACHE_ENTRIES
+                || self.image_cache_bytes + bytes > IMAGE_CACHE_BYTES) {
+                let (_, _, removed) = self.image_cache.remove(0);
+                self.image_cache_bytes -= removed;
+            }
+            self.image_cache.push((index, image.clone(), bytes));
+            self.image_cache_bytes += bytes;
+        }
+        image
+    }
 }
 
 #[derive(Clone)]
@@ -181,8 +214,45 @@ impl Image {
         Some(Self { url: Arc::new(url), data: Arc::new(data), alpha: Arc::new(alpha), pixels: (w, h), size: (0, 0), jpeg })
     }
 }
+/// Lexical virtual paths follow filesystem dot-segment rules. Leading parent
+/// components in a relative path stay relative to the document directory.
+#[inline(never)]
+pub(super) fn file_name(path: &[u8]) -> Cow<'_, [u8]> {
+    if !path.split(|&b| b == b'/').any(|part| part.is_empty() || part == b"." || part == b"..") {
+        return Cow::Borrowed(path);
+    }
+    let absolute = path.starts_with(b"/");
+    let mut parts: Vec<&[u8]> = Vec::new();
+    for part in path.split(|&b| b == b'/') {
+        match part {
+            b"" | b"." => {}
+            b".." if parts.last().is_some_and(|last| *last != b"..") => { parts.pop(); }
+            b".." if absolute => {}
+            _ => parts.push(part),
+        }
+    }
+    let mut out = Vec::with_capacity(path.len());
+    if absolute { out.push(b'/'); }
+    for part in parts {
+        if !out.is_empty() && out.last() != Some(&b'/') { out.push(b'/'); }
+        out.extend_from_slice(part);
+    }
+    Cow::Owned(out)
+}
+
+pub(super) fn find_file(files: &[(Vec<u8>, Vec<u8>)], name: &[u8], extensions: &[&[u8]]) -> Option<usize> {
+    let name = file_name(name);
+    files.iter().position(|(n, _)| file_name(n).as_ref() == name.as_ref()).or_else(|| {
+        extensions.iter().find_map(|ext| files.iter().position(|(n, _)| {
+            let n = file_name(n);
+            n.starts_with(&name) && &n[name.len()..] == *ext
+        }))
+    })
+}
+
 impl Engine {
     pub fn clear_files(&mut self) {
+        self.assets.clear_image_cache();
         self.assets.files.clear();
     }
     pub fn register_file(&mut self, name: usize, len: usize) -> i32 {
@@ -190,20 +260,56 @@ impl Engine {
             return -1;
         }
         let bytes = unsafe { core::slice::from_raw_parts(self.input.as_ptr(), len) };
+        self.assets.clear_image_cache();
         self.assets.files.push((bytes[..name].to_vec(), bytes[name..].to_vec()));
         0
     }
     pub(super) fn file_index(&self, name: &[u8], extensions: &[&[u8]]) -> Option<usize> {
-        let name = name.strip_prefix(b"./").unwrap_or(name);
-        self.assets.files.iter().position(|(n, _)| n.as_slice() == name).or_else(|| {
-            extensions.iter().find_map(|ext| self.assets.files.iter().position(|(n, _)| n.starts_with(name) && &n[name.len()..] == *ext))
-        })
+        find_file(&self.assets.files, name, extensions)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decoded_images_are_shared_but_requested_sizes_remain_local() {
+        let mut assets = Assets::default();
+        assets.files.push((b"image.png".to_vec(), include_bytes!("../../../tests/fixtures/image.png").to_vec()));
+        let mut first = assets.image(0).unwrap();
+        first.size = (1200, 800);
+        let second = assets.image(0).unwrap();
+        assert!(Arc::ptr_eq(&first.data, &second.data));
+        assert!(Arc::ptr_eq(&first.url, &second.url));
+        assert_eq!(second.size, (0, 0));
+    }
+
+    #[test]
+    fn image_cache_is_bounded_and_project_replacement_invalidates_it() {
+        let mut engine = Engine::new();
+        for index in 0..40 {
+            engine.assets.files.push((format!("invalid{index}.png").into_bytes(), b"invalid".to_vec()));
+            assert!(engine.assets.image(index).is_none());
+        }
+        assert_eq!(engine.assets.image_cache.len(), IMAGE_CACHE_ENTRIES);
+        engine.clear_files();
+        assert!(engine.assets.image_cache.is_empty());
+        engine.assets.files.push((b"image.png".to_vec(), include_bytes!("../../../tests/fixtures/image.png").to_vec()));
+        assert!(engine.assets.image(0).is_some());
+        // A full cache must evict before admitting another decoded image.
+        engine.assets.image_cache.clear();
+        let large = Image { url: Arc::new(alloc::vec![0; IMAGE_CACHE_BYTES]), data: Arc::new(Vec::new()),
+            alpha: Arc::new(Vec::new()), pixels: (1, 1), size: (0, 0), jpeg: false };
+        engine.assets.image_cache.push((1, Some(large), IMAGE_CACHE_BYTES));
+        engine.assets.image_cache_bytes = IMAGE_CACHE_BYTES;
+        assert!(engine.assets.image(0).is_some());
+        assert_eq!(engine.assets.image_cache.len(), 1);
+        assert!(engine.assets.image_cache_bytes < IMAGE_CACHE_BYTES);
+        engine.clear_files();
+        engine.assets.files.push((b"image.png".to_vec(), b"invalid replacement".to_vec()));
+        assert!(engine.assets.image(0).is_none());
+    }
     #[test]
     fn truncated_images_never_panic() {
         let bytes = include_bytes!("../../../tests/fixtures/image.png");

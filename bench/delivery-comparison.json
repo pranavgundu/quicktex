@@ -1,0 +1,78 @@
+{
+  "status": "Profile-guided caching verified. All 185 corpus PDFs remain byte-identical; full upstream content/layout parity remains incomplete.",
+  "before": {
+    "sha256": "e0574d45147641e37664fe79240a5a49a45eee71fa99d0eaa52f61884fc5680d",
+    "bytes": 1125689,
+    "gzipBytes": 598752
+  },
+  "after": {
+    "sha256": "b40264dbc42bb0464cc7e30c60c57759deb09208ea186e9e438f9d9a6e79ab8f",
+    "bytes": 1127988,
+    "gzipBytes": 599967,
+    "gzipBudgetBytes": 601000,
+    "firstOutlineBlockBytes": 65536,
+    "laterOutlineBlockBytes": 262144,
+    "outlineCompression": "zlib level 9, memLevel 9, Z_FILTERED",
+    "inlineThreshold": 150
+  },
+  "verification": {
+    "rustTestsPassed": 639,
+    "rustTestsIgnored": 1,
+    "ignoredTestReason": "Opt-in native CPU sampling harness",
+    "javascriptAndBrowserTestsPassed": 389,
+    "typeChecksPassed": true,
+    "productionBuildPassed": true,
+    "sizeGatePassed": true,
+    "sameBenchmarkPdfs": true,
+    "sameFormulaSvgs": true,
+    "sameUpstreamCorpusPdfs": 185
+  },
+  "quietWarmComparison": {
+    "passed": true,
+    "tolerancePercent": 5,
+    "changePercent": {
+      "note": -9.54,
+      "paper": -12.38,
+      "formulas": -1.41,
+      "book": -13.47,
+      "drawing": -0.46,
+      "plots": -0.21,
+      "tree": 0.21,
+      "formula_corpus": -2.59
+    },
+    "rawSamples": "bench/.work/perf-cache/warm-final.json"
+  },
+  "quietColdComparison": {
+    "passed": true,
+    "tolerancePercent": 5,
+    "pairsPerDocument": 21,
+    "medianTotalMs": {
+      "note": { "before": 6.306458, "after": 6.333 },
+      "paper": { "before": 16.30575, "after": 16.125709 },
+      "book": { "before": 98.887917, "after": 88.168875 }
+    },
+    "rawSamples": "bench/.work/perf-cache/cold-final.json"
+  },
+  "upstreamCorpus": {
+    "repositories": 18,
+    "documents": 185,
+    "quicktexWarningFreeRenders": 0,
+    "quicktexRendersWithWarnings": 185,
+    "quicktexFailures": 0,
+    "quicktexTimeouts": 0,
+    "quicktexPending": 0,
+    "referencePdfPairs": 259,
+    "pageCountMismatches": 120,
+    "wordCountMismatches": 259,
+    "report": "bench/templates-results.md",
+    "failureResolution": "bench/failure-resolution.md"
+  },
+  "cachePerformanceEvidence": "bench/cache-comparison.json",
+  "notes": [
+    "Warm, source-changing edit and cold trials ran without concurrent tests or reference compilers.",
+    "Cold samples measure initialization plus first PDF in 21 alternating fresh-process pairs; process startup is excluded.",
+    "Every timed source-changing edit runs layout. Resource caches do not shortcut whole-document rendering.",
+    "Current logs, native CPU sample, corpus hashes and raw benchmark data are in bench/.work/perf-cache. Earlier correctness probes remain in bench/.work/parity-next.",
+    "All corpus documents still warn. The partial publisher renderers do not execute arbitrary BST programs; emitted PDFs do not establish compatibility or a speed ranking against reference engines."
+  ]
+}

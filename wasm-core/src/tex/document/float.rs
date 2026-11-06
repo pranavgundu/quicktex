@@ -1,6 +1,18 @@
 use super::*;
 
-const WIDE: i32 = i32::MAX / 4;
+const AXIS_HEIGHT: f64 = 2.5;
+
+struct Boxed {
+    items: Vec<Item>,
+    art: Vec<Art>,
+    w: i32,
+    h: i32,
+    above: i32,
+    before: i32,
+    stretch: bool,
+}
+
+pub(super) const WIDE: i32 = i32::MAX / 4;
 const HEAVY_RULE: i32 = 80;
 const LIGHT_RULE: i32 = 50;
 const ABOVE_RULE: i32 = 170;
@@ -14,6 +26,7 @@ pub(in crate::tex) struct Held {
     items: (u32, u32),
     art: (u32, u32),
     h: i32,
+    unrestricted: bool,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -87,16 +100,20 @@ impl Engine {
     }
 
     fn line_until(&mut self, d: &mut Doc, c: &Ctx, stop: usize) -> R<(Bx, Vec<Word>)> {
-        let limit = self.len;
+        let start = self.pos;
         let at = unsafe { (self.p as *mut u8).add(stop) };
         let held = unsafe { *at };
         unsafe { *at = 0 };
-        self.len = stop;
+        // Counter and macro expansion can replace the active source buffer.
+        // Restore the entire reader, not just its old length, after each cell.
+        // Borrow the original bounded span to avoid copying every table cell.
+        let source = self.push_src(self.p, stop);
+        self.pos = start;
         let mut font = 0;
         let done = self.inline(d, c, &mut font, false);
-        let reached = self.pos >= stop;
+        let reached = self.at_end();
         unsafe { *at = held };
-        self.len = limit;
+        self.pop_src(source);
         done?;
         if !reached {
             return self.fail(E_MISPLACED);
@@ -169,8 +186,9 @@ impl Engine {
     pub(super) fn table_block(&mut self, d: &mut Doc, left: i32, width: i32, name: &[u8]) -> R<()> {
         let source = self.pos;
         self.skip_ws();
+        d.table_align = b'c';
         if self.peek() == b'[' {
-            self.bracketed()?;
+            d.table_align = figure::trim(self.bracketed()?).first().copied().unwrap_or(b'c');
         }
         let (aligns, count, lines, flexible, fill, fixed) = self.table_spec(width)?;
         let target = core::mem::take(&mut d.table_width);
@@ -406,10 +424,16 @@ impl Engine {
         let e = self.end();
         self.shift(s, e, 0, -y);
         let b = Bx { s, e, w: total_w, h: y, d: 0 };
-        let line = self.place_line(d, b.h, 0);
+        let above = match d.table_align {
+            b't' => first_base.unwrap_or(y),
+            b'b' => y - rows.last().map_or(0, |row| row.d),
+            _ => y / 2 + self.pt_units(AXIS_HEIGHT),
+        };
+        let line = self.place_line(d, above, y - above);
+        let bottom = line + y - above;
         let x = left + if d.center { ((width - b.w) / 2).max(0) } else { 0 };
-        self.commit(d, b.s, b.e, x, line);
-        self.place_label(d, left, line - y + first_base.unwrap_or(0));
+        self.commit(d, b.s, b.e, x, bottom);
+        self.place_label(d, left, bottom - y + first_base.unwrap_or(0));
         Ok(())
     }
 
@@ -557,6 +581,134 @@ impl Engine {
         Ok(())
     }
 
+    fn minipage(&mut self, d: &mut Doc, width: i32) -> R<Boxed> {
+        let mut align = b'c';
+        self.skip_ws();
+        for slot in 0..3 {
+            if self.peek() != b'[' {
+                break;
+            }
+            let text = self.bracketed()?;
+            if slot == 0 {
+                align = figure::trim(text).first().copied().unwrap_or(b'c');
+            }
+            self.skip_ws();
+        }
+        let text = self.loose_argument();
+        let w = self.table_width(text, width);
+        let (items, art) = (self.doc.items.len(), self.doc.art.len());
+        let mut f = d.clone();
+        f.left = 0;
+        f.top = 0;
+        f.text_w = w;
+        f.text_h = WIDE;
+        f.base = 0;
+        f.dep = 0;
+        f.skip = 0;
+        f.note_h = 0;
+        f.bottom_h = 0;
+        f.topskip = 0;
+        f.parindent = 0;
+        f.fresh = true;
+        f.first_line = None;
+        f.noindent = true;
+        f.center = false;
+        f.columns = 1;
+        f.column = 0;
+        f.word = None;
+        f.label = None;
+        self.blocks(&mut f, 0, 0, b"minipage")?;
+        self.close_env(b"minipage")?;
+        d.figures = f.figures;
+        d.tables = f.tables;
+        d.algorithms = f.algorithms;
+        d.equation = f.equation;
+        let h = f.base + f.dep;
+        let axis = self.pt_units(AXIS_HEIGHT);
+        let above = match align {
+            b't' => f.first_line.unwrap_or(0),
+            b'b' => f.base,
+            _ => h / 2 + axis,
+        };
+        Ok(Boxed { items: self.doc.items.split_off(items), art: self.doc.art.split_off(art), w, h, above, before: 0, stretch: false })
+    }
+
+    fn next_in_row(&mut self, space: i32) -> Option<(i32, bool)> {
+        let held = self.pos;
+        let (mut gap, mut stretch, mut seen, mut line_start) = (0, false, false, false);
+        loop {
+            match self.peek() {
+                b' ' | b'\t' => {
+                    seen |= !line_start;
+                    self.pos += 1;
+                }
+                b'\n' if line_start => break,
+                b'\n' => {
+                    seen = true;
+                    line_start = true;
+                    self.pos += 1;
+                }
+                b'%' => {
+                    while !self.at_end() && self.peek() != b'\n' {
+                        self.pos += 1;
+                    }
+                    self.pos += 1;
+                    line_start = true;
+                }
+                b'\\' if self.slice(self.pos, (self.pos + 6).min(self.len)) == b"\\hfill" => {
+                    self.pos += 6;
+                    stretch = true;
+                    (seen, line_start) = (false, false);
+                }
+                b'\\' if self.slice(self.pos, (self.pos + 16).min(self.len)) == b"\\begin{minipage}" => {
+                    self.pos += 16;
+                    if seen {
+                        gap = space;
+                    }
+                    return Some((gap, stretch));
+                }
+                _ => break,
+            }
+        }
+        self.pos = held;
+        None
+    }
+
+    pub(super) fn minipage_row(&mut self, d: &mut Doc, left: i32, width: i32) -> R<()> {
+        let space = sc(SPACE, d.ctx.scale);
+        let mut row = Vec::new();
+        row.push(self.minipage(d, width)?);
+        while let Some((before, stretch)) = self.next_in_row(space) {
+            let mut next = self.minipage(d, width)?;
+            next.before = before;
+            next.stretch = stretch;
+            row.push(next);
+        }
+        let above = row.iter().map(|b| b.above).max().unwrap_or(0);
+        let below = row.iter().map(|b| b.h - b.above).max().unwrap_or(0);
+        let total: i32 = row.iter().map(|b| b.w + b.before).sum();
+        let stretches = row.iter().filter(|b| b.stretch).count() as i32;
+        let spare = (width - total).max(0);
+        let mut x = left;
+        if stretches == 0 {
+            x += if d.center { spare / 2 } else if d.noindent { 0 } else { d.parindent };
+        }
+        d.noindent = false;
+        let y = self.place_line(d, above, below);
+        for b in row {
+            x += b.before;
+            if b.stretch {
+                x += spare / stretches;
+            }
+            let (dx, dy) = (d.left + x, d.top + y - b.above);
+            self.doc.items.extend(b.items.iter().map(|it| Item { x: it.x + dx, y: it.y + dy, ..*it }));
+            self.doc.art.extend(b.art.iter().map(|a| Art { x: a.x + dx, y: a.y + dy, ..*a }));
+            x += b.w;
+        }
+        d.line_end = 0;
+        Ok(())
+    }
+
     fn stash(&mut self, items: usize, art: usize, h: i32) -> Held {
         let i0 = self.store.held_items.len() as u32;
         let a0 = self.store.held_art.len() as u32;
@@ -564,7 +716,7 @@ impl Engine {
         self.store.held_art.extend_from_slice(&self.doc.art[art..]);
         self.doc.items.truncate(items);
         self.doc.art.truncate(art);
-        Held { items: (i0, self.store.held_items.len() as u32), art: (a0, self.store.held_art.len() as u32), h }
+        Held { items: (i0, self.store.held_items.len() as u32), art: (a0, self.store.held_art.len() as u32), h, unrestricted: false }
     }
 
     fn release(&mut self, held: Held, x: i32, y: i32) {
@@ -582,15 +734,20 @@ impl Engine {
         }
     }
 
-    pub(super) fn place_held(&mut self, d: &mut Doc) {
+    pub(super) fn place_held(&mut self, d: &mut Doc, force: bool) {
         let mut used = 0;
+        let mut count = 0;
+        let limit = self.counter_value(b"dbltopnumber").max(0) as usize;
         for i in 0..self.store.held.len() {
             let held = self.store.held[i];
+            if (!force && !held.unrestricted && count >= limit)
+                || (count > 0 && used + held.h > d.frame_h) { break; }
             self.release(held, d.frame_left, d.frame_top + used);
             used += held.h + self.pt_units(WIDE_FLOAT_GAP);
+            count += 1;
         }
-        self.store.held.clear();
-        if self.store.deferred.is_empty() && self.store.bottom.is_empty() {
+        self.store.held.drain(..count);
+        if self.store.held.is_empty() && self.store.deferred.is_empty() && self.store.bottom.is_empty() {
             self.store.held_items.clear();
             self.store.held_art.clear();
         }
@@ -610,16 +767,19 @@ impl Engine {
         d.bottom_h = 0;
     }
 
-    pub(super) fn place_deferred(&mut self, d: &mut Doc) {
+    pub(super) fn place_deferred(&mut self, d: &mut Doc, force: bool) {
         let mut used = 0;
         let mut count = 0;
+        let top = self.counter_value(b"topnumber").max(0) as u32;
+        let total = self.counter_value(b"totalnumber").max(0) as u32;
         for i in 0..self.store.deferred.len() {
             let held = self.store.deferred[i];
-            if count > 0 && used + held.h > d.text_h {
-                break;
-            }
+            if (!force && !held.unrestricted && (d.float_counts[0] >= top || d.float_counts[2] >= total))
+                || (count > 0 && used + held.h > d.text_h) { break; }
             self.release(held, d.left, d.top + used);
             used += held.h + d.float_gap;
+            d.float_counts[0] += 1;
+            d.float_counts[2] += 1;
             count += 1;
         }
         self.store.deferred.drain(..count);
@@ -667,22 +827,34 @@ impl Engine {
         d.algorithms = f.algorithms;
         d.equation = f.equation;
         let h = f.base + f.dep;
+        let unrestricted = placement.contains(&b'!');
         if wide {
-            let held = self.stash(items, art, h);
+            let mut held = self.stash(items, art, h);
+            held.unrestricted = unrestricted;
             self.store.held.push(held);
             return Ok(());
         }
         let gap = d.float_gap;
         let here = placement.contains(&b'h') || placement.contains(&b'H');
         let fits = d.fresh || d.base + d.dep + d.skip + gap + h <= d.text_h - d.note_h - d.bottom_h;
-        if !here && placement.contains(&b'b') && !placement.contains(&b't') && fits {
+        let total_full = d.float_counts[2] >= self.counter_value(b"totalnumber").max(0) as u32;
+        let bottom_full = d.float_counts[1] >= self.counter_value(b"bottomnumber").max(0) as u32;
+        let top_full = d.float_counts[0] >= self.counter_value(b"topnumber").max(0) as u32;
+        let bottom_only = !here && placement.contains(&b'b') && !placement.contains(&b't');
+        if bottom_only && fits
+            && (unrestricted || (!bottom_full && !total_full)) {
             let held = self.stash(items, art, h);
             self.store.bottom.push(held);
             d.bottom_h += h + gap;
+            d.float_counts[1] += 1;
+            d.float_counts[2] += 1;
             return Ok(());
         }
-        if !placement.contains(&b'H') && ((!here && !d.fresh) || (!fits && placement.contains(&b't')) || !self.store.deferred.is_empty()) {
-            let held = self.stash(items, art, h);
+        if !placement.contains(&b'H') && ((!here && !d.fresh) || (!fits && placement.contains(&b't'))
+            || !self.store.deferred.is_empty() || (bottom_only && (!fits || (!unrestricted && bottom_full)))
+            || (!unrestricted && (total_full || (!here && top_full)))) {
+            let mut held = self.stash(items, art, h);
+            held.unrestricted = unrestricted;
             self.store.deferred.push(held);
             return Ok(());
         }
@@ -706,6 +878,10 @@ impl Engine {
             self.store.tail_art = tail_art;
             broke?;
             y = 0;
+        }
+        if !placement.contains(&b'H') {
+            d.float_counts[2] += 1;
+            if !here { d.float_counts[0] += 1; }
         }
         let (dx, dy) = (d.left + left, d.top + y);
         for it in &mut self.doc.items[items..] {

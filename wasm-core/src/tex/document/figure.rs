@@ -8,6 +8,8 @@ pub(super) const CM: f64 = 28.452756;
 const PI: f64 = core::f64::consts::PI;
 const LN2: f64 = core::f64::consts::LN_2;
 const NODE_SEP: f64 = 3.3333;
+const TO_REACH: f64 = 0.3915;
+const ARC_HANDLE: f64 = 0.5523;
 const MAX_STYLE_DEPTH: u32 = 8;
 const MAX_CALC_DEPTH: u32 = 32;
 const MAX_SWEEP: f64 = 1440.0;
@@ -122,6 +124,43 @@ fn power(a: f64, b: f64) -> f64 {
         };
     }
     exp(b * ln(a))
+}
+
+fn truncate(v: f64) -> f64 {
+    if v < 0.0 { -floor(-v) } else { floor(v) }
+}
+
+fn arctan(x: f64) -> f64 {
+    if x < 0.0 {
+        return -arctan(-x);
+    }
+    if x > 1.0 {
+        return PI / 2.0 - arctan(1.0 / x);
+    }
+    if x > 0.4142135623730951 {
+        return PI / 4.0 + arctan((x - 1.0) / (x + 1.0));
+    }
+    let (square, mut term, mut sum) = (x * x, x, x);
+    for n in 1..16 {
+        term *= -square;
+        sum += term / (2 * n + 1) as f64;
+    }
+    sum
+}
+
+fn angle_of(y: f64, x: f64) -> f64 {
+    let turn = if x > 0.0 {
+        arctan(y / x)
+    } else if x < 0.0 {
+        arctan(y / x) + if y < 0.0 { -PI } else { PI }
+    } else if y < 0.0 {
+        -PI / 2.0
+    } else if y > 0.0 {
+        PI / 2.0
+    } else {
+        0.0
+    };
+    turn * 180.0 / PI
 }
 
 fn abs(v: f64) -> f64 {
@@ -326,6 +365,11 @@ impl Calc<'_> {
             self.word();
             s..self.i
         };
+        let mut word = word;
+        if self.peek() == b'2' && &self.s[word.clone()] == b"atan" {
+            self.i += 1;
+            word.end = self.i;
+        }
         let name = &self.s[word];
         if self.peek() != b'(' {
             return match name {
@@ -366,6 +410,28 @@ impl Calc<'_> {
             b"min" => a.min(b),
             b"max" => a.max(b),
             b"pow" => power(a, b),
+            b"mod" => a - b * truncate(a / b),
+            b"Mod" => a - b * floor(a / b),
+            b"int" => truncate(a),
+            b"frac" => a - truncate(a),
+            b"neg" => -a,
+            b"sign" => {
+                if a > 0.0 {
+                    1.0
+                } else if a < 0.0 {
+                    -1.0
+                } else {
+                    0.0
+                }
+            }
+            b"atan" => arctan(a) * 180.0 / PI,
+            b"atan2" => angle_of(a, b),
+            b"asin" => angle_of(a, sqrt(1.0 - a * a)),
+            b"acos" => angle_of(sqrt(1.0 - a * a), a),
+            b"sec" => 1.0 / cos_deg(a),
+            b"cosec" => 1.0 / sin_deg(a),
+            b"cot" => cos_deg(a) / sin_deg(a),
+            b"veclen" => sqrt(a * a + b * b),
             _ => return None,
         })
     }
@@ -451,6 +517,65 @@ pub(super) fn next_option(text: &'static [u8], at: &mut usize) -> Option<(&'stat
     }
 }
 
+fn length_of(v: (f64, f64)) -> f64 {
+    sqrt(v.0 * v.0 + v.1 * v.1)
+}
+
+fn round_corners(path: &mut Vec<(u8, f64, f64)>, radius: f64) {
+    if path.iter().any(|seg| seg.0 == SEG_CURVE) {
+        return;
+    }
+    let old = core::mem::take(path);
+    let mut start = 0;
+    while start < old.len() {
+        let mut end = start + 1;
+        while end < old.len() && old[end].0 != SEG_MOVE {
+            end += 1;
+        }
+        let closed = old[end - 1].0 == SEG_CLOSE;
+        let points: Vec<(f64, f64)> = old[start..end - closed as usize].iter().map(|seg| (seg.1, seg.2)).collect();
+        round_subpath(path, &points, closed, radius);
+        start = end;
+    }
+}
+
+fn round_subpath(path: &mut Vec<(u8, f64, f64)>, points: &[(f64, f64)], closed: bool, radius: f64) {
+    let n = points.len();
+    if n < 3 {
+        for (i, p) in points.iter().enumerate() {
+            path.push((if i == 0 { SEG_MOVE } else { SEG_LINE }, p.0, p.1));
+        }
+        return;
+    }
+    let toward = |from: (f64, f64), to: (f64, f64)| {
+        let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+        let length = length_of((dx, dy));
+        let step = radius.min(length / 2.0) / length.max(1e-9);
+        (from.0 + dx * step, from.1 + dy * step)
+    };
+    let corner = |path: &mut Vec<(u8, f64, f64)>, at: (f64, f64), enter: (f64, f64), leave: (f64, f64)| {
+        path.push((SEG_LINE, enter.0, enter.1));
+        path.push((SEG_CURVE, enter.0 + (at.0 - enter.0) * ARC_HANDLE, enter.1 + (at.1 - enter.1) * ARC_HANDLE));
+        path.push((SEG_CURVE, leave.0 + (at.0 - leave.0) * ARC_HANDLE, leave.1 + (at.1 - leave.1) * ARC_HANDLE));
+        path.push((SEG_CURVE, leave.0, leave.1));
+    };
+    if !closed {
+        path.push((SEG_MOVE, points[0].0, points[0].1));
+        for i in 1..n - 1 {
+            corner(path, points[i], toward(points[i], points[i - 1]), toward(points[i], points[i + 1]));
+        }
+        path.push((SEG_LINE, points[n - 1].0, points[n - 1].1));
+        return;
+    }
+    let begin = toward(points[0], points[1]);
+    path.push((SEG_MOVE, begin.0, begin.1));
+    for i in 1..=n {
+        let at = points[i % n];
+        corner(path, at, toward(at, points[i - 1]), toward(at, points[(i + 1) % n]));
+    }
+    path.push((SEG_CLOSE, begin.0, begin.1));
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct Mat {
     a: f64,
@@ -505,6 +630,12 @@ impl Mat {
     }
 }
 
+const ALIGN_NONE: u8 = 0;
+const ALIGN_LEFT: u8 = 1;
+const ALIGN_CENTER: u8 = 2;
+const ALIGN_RIGHT: u8 = 3;
+const ALIGN_FLUSH: u8 = 4;
+
 const TIP_NONE: u8 = 0;
 const TIP_DEFAULT: u8 = 1;
 const TIP_OPEN: u8 = 2;
@@ -528,6 +659,7 @@ pub(super) struct Pen {
     pub(super) start: Tip,
     pub(super) end: Tip,
     pub(super) arrow: Tip,
+    pub(super) corner: f64,
 }
 
 #[derive(Clone, Copy)]
@@ -541,10 +673,16 @@ pub(super) struct NodeLook {
     color: u32,
     round: bool,
     place: f64,
+    least: (f64, f64),
+    wrap: f64,
+    align: u8,
+    font: u8,
 }
 
 #[derive(Clone, Copy)]
 pub(super) struct Look {
+    pub(super) axes: [(f64, f64); 3],
+    pub(super) step: (f64, f64),
     pub(super) m: Mat,
     pub(super) pen: Pen,
     pub(super) node: NodeLook,
@@ -741,6 +879,8 @@ fn anchor_value(name: &[u8]) -> Option<(i8, i8)> {
 pub(super) fn first_look() -> Look {
     let none = Tip { kind: TIP_NONE, length: 0.0 };
     Look {
+        axes: [(CM, 0.0), (0.0, CM), (-0.385 * CM, -0.385 * CM)],
+        step: (CM, CM),
         m: Mat::IDENTITY,
         pen: Pen {
             width: 0.4,
@@ -753,8 +893,23 @@ pub(super) fn first_look() -> Look {
             start: none,
             end: none,
             arrow: Tip { kind: TIP_OPEN, length: 0.0 },
+            corner: 0.0,
         },
-        node: NodeLook { anchor: (0, 0), gap: 0.0, sep: NODE_SEP, turn: 0.0, size: 0, border: false, color: 0, round: false, place: 1.0 },
+        node: NodeLook {
+            anchor: (0, 0),
+            gap: 0.0,
+            sep: NODE_SEP,
+            turn: 0.0,
+            size: 0,
+            border: false,
+            color: 0,
+            round: false,
+            place: 1.0,
+            least: (0.0, 0.0),
+            wrap: 0.0,
+            align: ALIGN_LEFT,
+            font: 0,
+        },
     }
 }
 
@@ -978,13 +1133,52 @@ impl Engine {
                     while at < value.len() && value[at].is_ascii_alphabetic() {
                         at += 1;
                     }
-                    if let Some(size) = font_size(&value[start..at], self.doc.pt) {
+                    let name = &value[start..at];
+                    if let Some(size) = font_size(name, self.doc.pt) {
                         look.node.size = size;
+                    }
+                    match name {
+                        b"bfseries" | b"bf" => look.node.font = FONT_MAIN_BOLD,
+                        b"itshape" | b"it" => look.node.font = FONT_MAIN_ITALIC,
+                        b"ttfamily" | b"tt" => look.node.font = FONT_TYPEWRITER_REGULAR,
+                        b"normalfont" | b"rmfamily" | b"mdseries" | b"upshape" => look.node.font = 0,
+                        _ => {}
                     }
                 }
             }
             b"inner sep" => look.node.sep = self.value(value)?,
-            b"outer sep" | b"minimum width" | b"minimum height" | b"minimum size" | b"align" | b"transform shape" | b"rectangle" => {}
+            b"outer sep" | b"transform shape" | b"rectangle" => {}
+            b"minimum size" => {
+                let v = self.value(value)?;
+                look.node.least = (v, v);
+            }
+            b"minimum width" => look.node.least.0 = self.value(value)?,
+            b"minimum height" => look.node.least.1 = self.value(value)?,
+            b"text width" => look.node.wrap = self.value(value)?,
+            b"align" => {
+                look.node.align = match value {
+                    b"left" => ALIGN_LEFT,
+                    b"center" => ALIGN_CENTER,
+                    b"right" => ALIGN_RIGHT,
+                    b"flush left" => ALIGN_LEFT | ALIGN_FLUSH,
+                    b"flush center" => ALIGN_CENTER | ALIGN_FLUSH,
+                    b"flush right" => ALIGN_RIGHT | ALIGN_FLUSH,
+                    b"none" | b"justify" => ALIGN_NONE,
+                    _ => return self.fail_at(value, E_OPTION),
+                };
+            }
+            b"rounded corners" => pen.corner = if value.is_empty() { 4.0 } else { self.value(value)? },
+            b"sharp corners" => pen.corner = 0.0,
+            b"x" | b"y" | b"z" => {
+                let index = (key[0] - b'x') as usize;
+                look.axes[index] = self.axis_vector(index, value)?;
+            }
+            b"step" => {
+                let v = self.grid_step(look, value, 0)?;
+                look.step = (v, self.grid_step(look, value, 1)?);
+            }
+            b"xstep" => look.step.0 = self.grid_step(look, value, 0)?,
+            b"ystep" => look.step.1 = self.grid_step(look, value, 1)?,
             b"circle" => look.node.round = true,
             b"anchor" => match anchor_value(value) {
                 Some(a) => look.node.anchor = a,
@@ -1039,6 +1233,62 @@ impl Engine {
             }
         }
         self.fail_at(text, E_UNIT)
+    }
+
+    fn axis_vector(&mut self, index: usize, value: &'static [u8]) -> R<(f64, f64)> {
+        let t = trim(value);
+        if t.first() == Some(&b'(') && t.last() == Some(&b')') {
+            return self.pair(&t[1..t.len() - 1]);
+        }
+        let v = self.axis_value(t)?;
+        Ok(if index == 1 { (0.0, v) } else { (v, 0.0) })
+    }
+
+    fn grid_step(&mut self, look: &Look, value: &'static [u8], index: usize) -> R<f64> {
+        match evaluate(trim(value), 0.0, 0.0) {
+            Some((v, _)) if v.is_nan() || v <= 0.0 => self.fail_at(value, E_OPTION),
+            Some((v, true)) => Ok(v),
+            Some((v, false)) => Ok(v * length_of(look.axes[index])),
+            None => self.fail_at(value, E_OPTION),
+        }
+    }
+
+    fn coordinates(&mut self, look: &Look, text: &'static [u8]) -> R<(f64, f64)> {
+        let mut parts = [&text[0..0]; 3];
+        let (mut count, mut depth, mut start) = (0, 0, 0);
+        for (i, c) in text.iter().enumerate() {
+            match c {
+                b'(' | b'{' => depth += 1,
+                b')' | b'}' => depth -= 1,
+                b',' if depth == 0 => {
+                    if count == 2 {
+                        return self.fail_at(text, E_UNIT);
+                    }
+                    parts[count] = &text[start..i];
+                    count += 1;
+                    start = i + 1;
+                }
+                _ => {}
+            }
+        }
+        if count == 0 {
+            return self.fail_at(text, E_UNIT);
+        }
+        parts[count] = &text[start..];
+        let mut point = (0.0, 0.0);
+        for (index, part) in parts.iter().enumerate().take(count + 1) {
+            let Some((v, unit)) = evaluate(trim(part), 0.0, 0.0).filter(|(v, _)| !v.is_nan()) else {
+                return self.fail_at(part, E_UNIT);
+            };
+            let axis = look.axes[index];
+            if unit {
+                let along = if index == 1 { (0.0, v) } else { (v, 0.0) };
+                point = (point.0 + along.0, point.1 + along.1);
+            } else {
+                point = (point.0 + v * axis.0, point.1 + v * axis.1);
+            }
+        }
+        Ok(point)
     }
 
     fn axis_value(&mut self, text: &'static [u8]) -> R<f64> {
@@ -1105,13 +1355,13 @@ impl Engine {
                 let (x, y) = self.plain_pair(t)?;
                 return Ok(map.at(x, y));
             }
-            let p = self.pair(t)?;
+            let p = self.coordinates(look, t)?;
             return Ok(look.m.at(p));
         }
         if let Some(i) = t.iter().position(|c| *c == b':') {
             let angle = self.plain_value(&t[..i])?;
-            let radius = self.axis_value(&t[i + 1..])?;
-            return Ok(look.m.at((radius * cos_deg(angle), radius * sin_deg(angle))));
+            let (rx, ry) = self.axis_radius(look, &t[i + 1..])?;
+            return Ok(look.m.at((rx * cos_deg(angle), ry * sin_deg(angle))));
         }
         let name = match t.iter().position(|c| *c == b'.') {
             Some(i) => &t[..i],
@@ -1223,18 +1473,25 @@ impl Engine {
             return Ok((self.resolve(pic, look, inner)?, true));
         }
         let t = trim(inner);
-        let v = if pic.axis.is_some() { self.plain_pair(t)? } else { self.pair(t)? };
+        let v = if pic.axis.is_some() { self.plain_pair(t)? } else { self.coordinates(look, t)? };
         let d = if pic.axis.is_some() { v } else { look.m.vector(v) };
         Ok(((cur.0 + d.0, cur.1 + d.1), relative == 2))
     }
 
-    fn radii(&mut self, text: &'static [u8]) -> R<(f64, f64)> {
+    fn axis_radius(&mut self, look: &Look, text: &'static [u8]) -> R<(f64, f64)> {
+        match evaluate(trim(text), 0.0, 0.0) {
+            Some((v, true)) if !v.is_nan() => Ok((v, v)),
+            Some((v, false)) if !v.is_nan() => Ok((v * length_of(look.axes[0]), v * length_of(look.axes[1]))),
+            _ => self.fail_at(text, E_UNIT),
+        }
+    }
+
+    fn radii(&mut self, look: &Look, text: &'static [u8]) -> R<(f64, f64)> {
         let t = trim(text);
         if let Some(i) = t.windows(5).position(|w| w == b" and ") {
-            return Ok((self.axis_value(&t[..i])?, self.axis_value(&t[i + 5..])?));
+            return Ok((self.axis_radius(look, &t[..i])?.0, self.axis_radius(look, &t[i + 5..])?.1));
         }
-        let r = self.axis_value(t)?;
-        Ok((r, r))
+        self.axis_radius(look, t)
     }
 
     pub(super) fn sweep(&mut self, pic: &mut Pic, look: &Look, center: (f64, f64), r: (f64, f64), from: f64, to: f64) {
@@ -1373,14 +1630,14 @@ impl Engine {
                             }
                         }
                         b"circle" | b"ellipse" => {
-                            let r = self.round_size()?;
+                            let r = self.round_size(look)?;
                             let start = look.m.vector((r.0, 0.0));
                             pic.path.push((SEG_MOVE, cur.0 + start.0, cur.1 + start.1));
                             self.sweep(pic, look, cur, r, 0.0, 360.0);
                             pic.path.push((SEG_CLOSE, cur.0, cur.1));
                         }
                         b"arc" => {
-                            let (from, to, r) = self.arc_size()?;
+                            let (from, to, r) = self.arc_size(look)?;
                             let v = look.m.vector((r.0 * cos_deg(from), r.1 * sin_deg(from)));
                             let center = (cur.0 - v.0, cur.1 - v.1);
                             self.sweep(pic, look, center, r, from, to);
@@ -1404,12 +1661,19 @@ impl Engine {
                             self.node(d, pic, &mut l, Some(p))?;
                         }
                         b"to" => {
-                            self.square_options()?;
+                            let bend = self.square_options()?;
                             let nodes = self.skip_nodes()?;
                             self.skip_gap();
                             let (p, keep) = self.target(pic, look, cur)?;
                             self.segment_nodes(d, pic, look, nodes, cur, p)?;
-                            pic.path.push((SEG_LINE, p.0, p.1));
+                            match self.to_controls(bend, cur, p)? {
+                                Some((a, b)) => {
+                                    pic.path.push((SEG_CURVE, a.0, a.1));
+                                    pic.path.push((SEG_CURVE, b.0, b.1));
+                                    pic.path.push((SEG_CURVE, p.0, p.1));
+                                }
+                                None => pic.path.push((SEG_LINE, p.0, p.1)),
+                            }
                             last = cur;
                             if keep {
                                 cur = p;
@@ -1446,6 +1710,40 @@ impl Engine {
                 }
             }
         }
+    }
+
+    fn to_controls(&mut self, options: &'static [u8], from: (f64, f64), to: (f64, f64)) -> R<Option<((f64, f64), (f64, f64))>> {
+        let toward = angle_of(to.1 - from.1, to.0 - from.0);
+        let (mut leave, mut arrive, mut loose) = (None, None, 1.0);
+        let mut at = 0;
+        while let Some((key, value)) = next_option(options, &mut at) {
+            let number = |engine: &mut Self, fallback: f64| if value.is_empty() { Ok(fallback) } else { engine.plain_value(value) };
+            match key {
+                b"out" => leave = Some(self.plain_value(value)?),
+                b"in" => arrive = Some(self.plain_value(value)?),
+                b"looseness" => loose = self.plain_value(value)?,
+                b"bend left" => {
+                    let bend = number(self, 30.0)?;
+                    leave = Some(toward + bend);
+                    arrive = Some(toward + 180.0 - bend);
+                }
+                b"bend right" => {
+                    let bend = number(self, 30.0)?;
+                    leave = Some(toward - bend);
+                    arrive = Some(toward + 180.0 + bend);
+                }
+                _ => {}
+            }
+        }
+        if leave.is_none() && arrive.is_none() {
+            return Ok(None);
+        }
+        let reach = TO_REACH * loose * length_of((to.0 - from.0, to.1 - from.1));
+        let (leave, arrive) = (leave.unwrap_or(toward), arrive.unwrap_or(toward + 180.0));
+        Ok(Some((
+            (from.0 + reach * cos_deg(leave), from.1 + reach * sin_deg(leave)),
+            (to.0 + reach * cos_deg(arrive), to.1 + reach * sin_deg(arrive)),
+        )))
     }
 
     fn skip_nodes(&mut self) -> R<Option<usize>> {
@@ -1493,14 +1791,16 @@ impl Engine {
     }
 
     fn add_grid(&mut self, pic: &mut Pic, look: &Look, from: (f64, f64), to: (f64, f64), options: &'static [u8]) {
-        let mut step = (CM, CM);
+        let mut step = look.step;
         let mut at = 0;
         while let Some((key, value)) = next_option(options, &mut at) {
-            if let Some(v) = length_pt(value).filter(|v| *v > 0.0) {
+            if let Some((v, unit)) = evaluate(trim(value), 0.0, 0.0).filter(|(v, _)| *v > 0.0) {
+                let across = if unit { v } else { v * length_of(look.axes[0]) };
+                let down = if unit { v } else { v * length_of(look.axes[1]) };
                 match key {
-                    b"step" => step = (v, v),
-                    b"xstep" => step.0 = v,
-                    b"ystep" => step.1 = v,
+                    b"step" => step = (across, down),
+                    b"xstep" => step.0 = across,
+                    b"ystep" => step.1 = down,
                     _ => {}
                 }
             }
@@ -1532,28 +1832,28 @@ impl Engine {
         pic.path.push((SEG_MOVE, to.0, to.1));
     }
 
-    fn round_size(&mut self) -> R<(f64, f64)> {
+    fn round_size(&mut self, look: &Look) -> R<(f64, f64)> {
         self.skip_gap();
         if self.peek() == b'(' {
             let inner = self.nested(b'(', b')')?;
-            return self.radii(inner);
+            return self.radii(look, inner);
         }
         let text = self.square_options()?;
         let mut at = 0;
         let mut r = (CM, CM);
         while let Some((key, value)) = next_option(text, &mut at) {
-            let v = self.axis_value(value)?;
+            let v = self.axis_radius(look, value)?;
             match key {
-                b"radius" => r = (v, v),
-                b"x radius" => r.0 = v,
-                b"y radius" => r.1 = v,
+                b"radius" => r = v,
+                b"x radius" => r.0 = v.0,
+                b"y radius" => r.1 = v.1,
                 _ => {}
             }
         }
         Ok(r)
     }
 
-    fn arc_size(&mut self) -> R<(f64, f64, (f64, f64))> {
+    fn arc_size(&mut self, look: &Look) -> R<(f64, f64, (f64, f64))> {
         self.skip_gap();
         if self.peek() == b'(' {
             let inner = trim(self.nested(b'(', b')')?);
@@ -1561,7 +1861,7 @@ impl Engine {
             let (Some(a), Some(b), Some(r)) = (parts.next(), parts.next(), parts.next()) else {
                 return self.fail_at(inner, E_ARG);
             };
-            return Ok((self.plain_value(a)?, self.plain_value(b)?, self.radii(r)?));
+            return Ok((self.plain_value(a)?, self.plain_value(b)?, self.radii(look, r)?));
         }
         let text = self.square_options()?;
         let mut at = 0;
@@ -1570,10 +1870,7 @@ impl Engine {
             match key {
                 b"start angle" => from = self.plain_value(value)?,
                 b"end angle" => to = self.plain_value(value)?,
-                b"radius" => {
-                    let v = self.axis_value(value)?;
-                    r = (v, v);
-                }
+                b"radius" => r = self.axis_radius(look, value)?,
                 _ => {}
             }
         }
@@ -1597,6 +1894,9 @@ impl Engine {
     }
 
     fn flush_path(&mut self, pic: &mut Pic, pen: &Pen, drawn: bool, solid: bool) {
+        if pen.corner > 0.0 {
+            round_corners(&mut pic.path, pen.corner);
+        }
         let k = 1000.0 / self.doc.pt as f64;
         let s = self.doc.segs.len() as u32;
         for i in 0..pic.path.len() {
@@ -1754,9 +2054,9 @@ impl Engine {
         let p = point.unwrap_or_else(|| look.m.at((0.0, 0.0)));
         let c = self.text_ctx(d, look.node.size, look.node.color);
         self.pos += 1;
-        let mut font = 0;
+        let mut font = look.node.font;
         self.inline(d, &c, &mut font, true)?;
-        let b = self.line_box(d, &c);
+        let b = if look.node.wrap > 0.0 { self.wrapped_box(d, &c, look.node.wrap, look.node.align) } else { self.line_box(d, &c) };
         self.skip_gap();
         let n = look.node;
         let (center, extent) = self.place_text(pic, &look.pen, b, p, &n);
@@ -1767,10 +2067,46 @@ impl Engine {
         Ok(())
     }
 
+    fn wrapped_box(&mut self, d: &mut Doc, c: &Ctx, width: f64, align: u8) -> Bx {
+        self.flush_word(d, false);
+        let width = to_units(width * 1000.0 / self.doc.pt as f64);
+        let first = self.words.first().map_or(self.end(), |word| word.bx.s);
+        let mark = self.doc.items.len();
+        let mut f = d.clone();
+        f.left = 0;
+        f.top = 0;
+        f.text_w = width;
+        f.text_h = super::float::WIDE;
+        f.base = 0;
+        f.dep = 0;
+        f.skip = 0;
+        f.note_h = 0;
+        f.bottom_h = 0;
+        f.topskip = 0;
+        f.fresh = true;
+        f.word = None;
+        f.label = None;
+        let flush = align & ALIGN_FLUSH != 0;
+        let align = align & !ALIGN_FLUSH;
+        f.line_fill = match align {
+            _ if flush => 0,
+            ALIGN_NONE => 0,
+            ALIGN_CENTER => CENTERED_FILL,
+            _ => RAGGED_FILL,
+        };
+        self.set_lines(&mut f, c, 0, width, 0, align != ALIGN_NONE, align == ALIGN_CENTER);
+        let h = f.base + f.dep;
+        let lines = self.doc.items.split_off(mark);
+        self.items.truncate(first as usize);
+        let s = self.end();
+        self.items.extend(lines.iter().map(|it| Item { y: it.y - h, ..*it }));
+        self.close(s, width, h, 0)
+    }
+
     pub(super) fn place_text(&mut self, pic: &mut Pic, pen: &Pen, b: Bx, p: (f64, f64), n: &NodeLook) -> ((f64, f64), Extent) {
         let pt = self.doc.pt as f64 / 1000.0;
         let (w, top, bottom) = (b.w as f64 * pt, b.h as f64 * pt, b.d as f64 * pt);
-        let half = (w / 2.0 + n.sep, (top + bottom) / 2.0 + n.sep);
+        let half = ((w / 2.0 + n.sep).max(n.least.0 / 2.0), ((top + bottom) / 2.0 + n.sep).max(n.least.1 / 2.0));
         let (cos, sin) = (cos_deg(n.turn), sin_deg(n.turn));
         let turn = |v: (f64, f64)| (v.0 * cos - v.1 * sin, v.0 * sin + v.1 * cos);
         let reach = (-(n.anchor.0 as f64) * (half.0 + n.gap), -(n.anchor.1 as f64) * (half.1 + n.gap));
@@ -2002,6 +2338,7 @@ impl Engine {
                     return Ok(true);
                 }
                 _ if name.starts_with(b"tkz") => self.tkz_statement(d, pic, look, name)?,
+                b"relax" => {}
                 b"foreach" => self.scene_foreach(d, pic, *look)?,
                 b"pgfmathsetmacro" | b"pgfmathtruncatemacro" | b"pgfmathparse" => self.pgf_math(pic, name)?,
                 b"usetikzlibrary" | b"pgfplotsset" | b"tikzstyle" => self.scene_setting(pic, name, *look)?,

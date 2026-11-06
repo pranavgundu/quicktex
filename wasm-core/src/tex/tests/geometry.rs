@@ -1,5 +1,31 @@
 use super::*;
 
+#[test]
+fn contour_bezier_coordinates_have_unambiguous_separators() {
+    use crate::tex::{Item, IT_ELLIPSE};
+    let item = Item { x: 0, y: 0, a: 200, b: 100, g: 0, kind: IT_ELLIPSE };
+    let mut bytes = [0u8; 512];
+    let len = crate::emit::brace_path(&item, &mut bytes);
+    let text = core::str::from_utf8(&bytes[..len]).unwrap();
+    assert!(text.contains("c0 55 -90 100 -200 100"), "{text}");
+    assert_eq!(text.matches('c').count(), 8);
+    assert_eq!(text.matches('z').count(), 2);
+}
+
+#[test]
+fn multiple_contour_integrals_are_operators_with_shared_closed_contours() {
+    for name in [r"\oiint", r"\oiiint"] {
+        let svg = display(&format!("{name}\\limits_{{S}}^{{T}} f")).unwrap();
+        well_formed(&svg).unwrap();
+        assert!(svg.contains('c'), "contour must have curved sides");
+        assert!(measure_display(&format!("{name}\\limits_{{S}}^{{T}}")).height > measure_display(name).height);
+        // An operator must also work where an unbraced single atom is expected.
+        inline(&format!(r"\frac{name} x")).unwrap();
+    }
+    assert!(measure_display(r"\oiiint").width > measure_display(r"\oiint").width);
+    assert!(measure_display(r"\oiint").width > measure_display(r"\int").width);
+}
+
 fn wider(rows: &[(&str, &str)]) {
     check(rows, |r| {
         if measure_display(r.0).width > measure_display(r.1).width {

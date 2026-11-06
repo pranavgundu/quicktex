@@ -57,7 +57,8 @@ impl Engine {
         for word in old {
             let b = word.bx;
             let items = &self.items[b.s as usize..b.e as usize];
-            if items.len() < 5
+            if word.literal
+                || items.len() < 5
                 || word.hyphen.is_some()
                 || items.iter().any(|it| it.kind != IT_GLYPH || !(it.b as u8).is_ascii_alphabetic() || it.b > 127 || it.y != 0)
             {
@@ -95,6 +96,12 @@ impl Engine {
                     forced: word.forced && to == text.len(),
                     gap: if from == 0 { word.gap } else { false },
                     hyphen: mark,
+                    literal: false,
+                    penalty: if to == text.len() { word.penalty } else { 0 },
+                    after: if to == text.len() { word.after } else { 1000 },
+                    tied: word.tied && from == 0,
+                    below: if to == text.len() { word.below } else { 0 },
+                    space: word.space,
                 });
                 origin += width;
                 from = to;

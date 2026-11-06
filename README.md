@@ -70,16 +70,18 @@ Unsupported commands, package options and document classes produce warnings; par
 Documents now support:
 
 - Virtual project files for `\input`, `\include`, `.bib` bibliographies, and PNG/JPEG `\includegraphics`, with aspect-ratio sizing and PNG transparency. Use **Add files** in the editor; importing `main.tex` or `document.tex` also opens it as the main source. Supporting files and assets persist in this browser using IndexedDB; the save indicator reports storage failures.
-- `.bib` references from `\bibliography` with numeric and common natbib author/year citations, citation notes and `\nocite`. The built-in formatter accepts `plain`, `unsrt`, `abbrv` and their `nat` variants; it does not execute arbitrary `.bst` files or Biber. Macro-generated citations and conditional resource discovery are limited and produce warnings.
+- Project paths resolve `.` and `..` consistently for inputs, images and bibliography resources. Literal `\graphicspath` directory lists and `\DeclareGraphicsExtensions` control image lookup, including extension order across directories; graphics settings stay local to groups, environments and titles. If that order selects a PDF figure, QuickTeX warns rather than silently substituting a PNG.
+- `.bib` references from `\bibliography` with numeric and common natbib author/year citations, citation notes and `\nocite`. The built-in formatter accepts `plain`, `unsrt`, `abbrv` and their `nat` variants. It also provides partial IEEE (`IEEEtran`, `IEEEtranN`, `IEEEtranN-doi`), Springer/LNCS (`splncs04`, `splncs04nat`, `spbasic`) and ACM (`ACM-Reference-Format`) formatting, with compatibility warnings: author names, ordering and common reference fields are implemented, not arbitrary `.bst` programs or publisher-specific options. A missing database with no citations warns and renders no bibliography; a missing cited database remains an error. BibLaTeX URL counters control punctuation, letter and digit breaks in bibliography URLs and with `\biburlsetup`; this does not implement BibLaTeX styles or Biber. Classic BibTeX crossrefs inherit missing fields and list a shared parent after two cited children. Nested crossrefs and BibLaTeX inheritance remain unsupported. Macro-generated citations and conditional resource discovery are limited and produce warnings.
 - Multi-page `longtable` output. Oversized `tabular` tables also preserve their rows across pages and warn about this fallback. Repeated longtable heads/feet and rows taller than a page warn.
-- Custom and built-in counters, `\arabic`, alphabetic/Roman forms, count registers, `\advance` and bounded `\loop ... \ifnum ... \repeat`. This remains a subset of TeX programming; loops are limited to 1,000 iterations per render and custom `\refstepcounter` label binding warns.
+- Custom and built-in counters (including footnote numbering), `\arabic`, alphabetic/Roman forms, count registers, `\advance` and bounded `\loop ... \ifnum ... \repeat`. This remains a subset of TeX programming; loops are limited to 1,000 iterations per render and custom `\refstepcounter` label binding warns.
 - `fancyhdr` header/footer fields, odd/even selectors, `\pagestyle`, `\thispagestyle`, page numbers and header/footer rules. Automatic chapter/section marks and arbitrary page-style definitions remain unsupported.
 - Clickable external PDF links from `\href` and `\url`, with separate annotations for wrapped lines/pages. Internal hyperref destinations and bookmarks remain unsupported and warn.
 - Footnotes at the bottom of their column, with reserved space and a separator rule.
 - Word wrapping in `p{}`, `m{}`, `b{}`, and `X` table columns, including shrinking `X` columns to the requested table width.
 - Chinese, Japanese, Korean, Cyrillic, and Greek fallback outlines. `loadFontsFor(source)` loads the optional Noto assets; the editor and CLI do this automatically. Only glyphs used in the document enter its PDF. CJK uses Noto Serif CJK SC's shared ideograph forms; language-specific shaping and bold/italic fallback faces are not implemented.
+- Multiple surface contour integrals (`\oiint`, `\oiiint`) with shared vector contours and normal operator script/limit placement in SVG and PDF.
 - American English pattern hyphenation, `\-`, and `\hyphenation{...}` exceptions. This improves line breaking but does not reproduce TeX's full paragraph or language machinery.
-- `[h]`/`[H]` placement, deferred `[t]` floats, `[b]` floats at the bottom, and wide floats on the next page. Float queues use simpler rules than TeX; float-page fractions and all placement combinations are not implemented.
+- `[h]`/`[H]` placement, deferred `[t]` floats, `[b]` floats at the bottom, and wide floats on the next page. `topnumber`, `bottomnumber`, `totalnumber`, and `dbltopnumber` constrain placement; `!` overrides the count limits and `[H]` does not consume them. Zero limits still allow end-of-document float-only pages to flush. Float queues use simpler rules than TeX; float-page fractions and all placement combinations are not implemented.
 - Selectable, searchable PDF text through embedded Type 3 glyph fonts and Unicode maps, plus compressed streams. Math extraction follows glyph order rather than semantic equation structure.
 
 Drawing compatibility is a subset, with warnings for unsupported commands: `picture` supports `\put`, lines, vectors, circles, box text, and quadratic Béziers; `pspicture` supports polylines, polygons, rectangles, circles, and text; `forest` supports basic bracketed trees; `chemfig` supports linear molecules and branches; and TikZ accepts common `tkz` point definitions, segments, polygons, circles, midpoint construction, and labels. Package-specific styles, chemical rings, advanced constructions, and layout algorithms remain incomplete. Existing TikZ/pgfplots support is unchanged.
@@ -96,6 +98,13 @@ renderDocument(source, {
   },
 })
 ```
+
+The compiler reuses bounded caches for immutable ASCII metrics and decoded
+project images, plus paragraph-layout scratch buffers. Every document edit still
+runs layout; there is no whole-document result cache. Image caches clear when
+project files change, and fallback-glyph preparation refreshes when files or
+fonts are registered. See [edit benchmarks](bench/README.md#source-changing-edit-performance-and-caches)
+for measured speedups and correctness checks.
 
 `setFiles(files)` replaces the virtual project filesystem for subsequent compiles. Missing or unsupported image files produce warnings and a placeholder. Supported raster formats are 8-bit, non-interlaced PNG (gray, RGB, palette, and alpha) and 8-bit RGB JPEG. Other formats, including PDF figures, are not implemented. `await registerFont(bytes)` adds an OpenType fallback font. The optional bundled fonts are loaded lazily from the same origin; no external font service is used.
 

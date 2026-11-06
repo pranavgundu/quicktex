@@ -9,7 +9,7 @@ const MAX_EXPANSIONS: u32 = 400_000;
 const MAX_EXPANSION_BYTES: usize = 256 << 20;
 const MAX_DEFS: usize = 900;
 const MAX_LOOP_ITERATIONS: u32 = 1000;
-const BUILTIN_COUNTERS: usize = 9;
+const BUILTIN_COUNTERS: usize = 14;
 
 pub(super) struct Counter {
     name: &'static [u8],
@@ -43,6 +43,7 @@ impl Engine {
         self.counters.clear();
         self.loop_iterations = 0;
         self.has_count_registers = false;
+        self.at_letter = false;
         let mut m = self.session;
         while m != 0 {
             let i = m.trailing_zeros() as usize;
@@ -65,8 +66,30 @@ impl Engine {
             (b"table", 0, b""),
             (b"secnumdepth", 3, b""),
             (b"tocdepth", 3, b""),
+            (b"footnote", 0, b""),
+            (b"topnumber", 2, b""),
+            (b"bottomnumber", 1, b""),
+            (b"totalnumber", 3, b""),
+            (b"dbltopnumber", 2, b""),
         ] {
             self.counters.push(Counter { name, value, parent, register: false });
+        }
+    }
+
+    #[inline(never)]
+    pub(super) fn initialize_biblatex_counters(&mut self) {
+        self.initialize_counters();
+        if self.counter_index(b"biburlbreakpenalty").is_some() {
+            return;
+        }
+        for (name, value) in [
+            (b"biburlbigbreakpenalty".as_slice(), 100),
+            (b"biburlbreakpenalty".as_slice(), 200),
+            (b"biburlnumpenalty".as_slice(), 0),
+            (b"biburlucpenalty".as_slice(), 0),
+            (b"biburllcpenalty".as_slice(), 0),
+        ] {
+            self.counters.push(Counter { name, value, parent: b"", register: false });
         }
     }
 
@@ -160,11 +183,55 @@ impl Engine {
             // Text expansion works; heading/caption/reference formatting is still numeric.
             self.note(self.pos);
         }
+        let body = self.internal_tokens(body);
+        let default = self.internal_tokens(default);
         self.add_def(Def { name, spec, default, body, native: Native::None })
+    }
+
+    /// Preserve the category of @ in stored control words. Source characters
+    /// outside macro definitions still obey the current makeatletter state.
+    fn internal_tokens(&mut self, text: &'static [u8]) -> &'static [u8] {
+        if !self.at_letter || !text.contains(&b'@') {
+            return text;
+        }
+        let mut out = Vec::with_capacity(text.len());
+        let mut at = 0;
+        while at < text.len() {
+            if text[at] == b'%' {
+                let end = text[at..].iter().position(|&b| b == b'\n').map_or(text.len(), |n| at + n);
+                out.extend_from_slice(&text[at..end]);
+                at = end;
+            } else if text[at] == b'\\' {
+                out.push(b'\\');
+                at += 1;
+                let start = at;
+                while at < text.len() && (text[at].is_ascii_alphabetic() || text[at] == b'@') {
+                    at += 1;
+                }
+                if text[start..at].contains(&b'@') {
+                    out.push(0x1f);
+                    out.extend_from_slice(&text[start..at]);
+                    out.push(0x1f);
+                } else {
+                    // A control symbol consumes exactly one character, even
+                    // when it is a backslash or percent sign.
+                    if at == start && at < text.len() { at += 1; }
+                    out.extend_from_slice(&text[start..at]);
+                }
+            } else {
+                out.push(text[at]);
+                at += 1;
+            }
+        }
+        self.keep(out)
     }
 
     fn defined(&self, name: &[u8]) -> bool {
         self.find_def(name).is_some() || lookup(name).is_some()
+    }
+
+    pub(super) fn package_loaded(&self, name: &[u8]) -> bool {
+        find_package(name).is_some_and(|i| self.pkgs & (1 << i) != 0)
     }
 
     pub(super) fn load_package(&mut self, i: usize) -> R<()> {
@@ -216,6 +283,10 @@ impl Engine {
             let ch = self.peek();
             if ch == b'\\' {
                 self.pos += 2;
+                continue;
+            }
+            if ch == b'%' {
+                while !self.at_end() && self.peek() != b'\n' { self.pos += 1; }
                 continue;
             }
             if ch == stop && depth == 0 {
@@ -474,7 +545,7 @@ impl Engine {
         Ok(())
     }
 
-    fn counter_index(&self, name: &[u8]) -> Option<usize> {
+    pub(super) fn counter_index(&self, name: &[u8]) -> Option<usize> {
         if self.counters.is_empty() {
             return None;
         }
@@ -488,6 +559,11 @@ impl Engine {
             b"table" => 6,
             b"secnumdepth" => 7,
             b"tocdepth" => 8,
+            b"footnote" => 9,
+            b"topnumber" => 10,
+            b"bottomnumber" => 11,
+            b"totalnumber" => 12,
+            b"dbltopnumber" => 13,
             _ => return self.counters[BUILTIN_COUNTERS..].iter().position(|c| c.name == name).map(|i| i + BUILTIN_COUNTERS),
         };
         Some(index)
@@ -796,6 +872,8 @@ impl Engine {
                     | b"quicktexiterate"
                     | b"repeat"
                     | b"relax"
+                    | b"makeatletter"
+                    | b"makeatother"
             )
         {
             self.execute_control_command(name)
@@ -807,6 +885,8 @@ impl Engine {
     #[inline(never)]
     fn execute_control_command(&mut self, name: &[u8]) -> R<bool> {
         match name {
+            b"makeatletter" => self.at_letter = true,
+            b"makeatother" => self.at_letter = false,
             b"newcounter" | b"newcount" => {
                 self.initialize_counters();
                 let register = name == b"newcount";
@@ -933,11 +1013,18 @@ impl Engine {
             b"newcommand" | b"renewcommand" => self.new_command(false)?,
             b"providecommand" => self.new_command(true)?,
             b"def" => self.tex_def()?,
+            b"makeatletter" => self.at_letter = true,
+            b"makeatother" => self.at_letter = false,
             b"DeclareMathOperator" => self.math_operator()?,
             b"DeclarePairedDelimiter" => self.paired_delimiter()?,
             b"NewDocumentCommand" | b"RenewDocumentCommand" | b"DeclareDocumentCommand" => self.document_command(false)?,
             b"ProvideDocumentCommand" => self.document_command(true)?,
             b"definecolor" => self.define_color()?,
+            b"oiint" | b"oiiint" => {
+                let atom = self.contour_op(c, if name == b"oiint" { 2 } else { 3 });
+                let atom = self.scripts(c, atom)?;
+                self.place(r, c, atom);
+            }
             b"IfNoValueTF" | b"IfNoValueT" | b"IfNoValueF" | b"IfBooleanTF" | b"IfBooleanT" | b"IfBooleanF" => self.branch(name, r, c)?,
             _ => {
                 let Some(d) = self.autoload(name)? else {
@@ -1204,7 +1291,8 @@ mod counter_invariants {
     #[test]
     fn builtin_indices_match_initialization_and_reset_rules() {
         let names: &[&[u8]] =
-            &[b"page", b"section", b"subsection", b"subsubsection", b"equation", b"figure", b"table", b"secnumdepth", b"tocdepth"];
+            &[b"page", b"section", b"subsection", b"subsubsection", b"equation", b"figure", b"table", b"secnumdepth", b"tocdepth", b"footnote",
+              b"topnumber", b"bottomnumber", b"totalnumber", b"dbltopnumber"];
         let mut engine = Engine::new();
         assert_eq!(engine.counter_index(b"equation"), None);
         engine.initialize_counters();

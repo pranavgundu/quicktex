@@ -1,5 +1,6 @@
 use super::Engine;
 
+mod cache;
 mod errors;
 mod geometry;
 mod macros;

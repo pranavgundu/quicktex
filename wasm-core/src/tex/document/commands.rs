@@ -319,8 +319,6 @@ pub(super) fn silent_setting(name: &[u8]) -> bool {
             | b"bibpunct"
             | b"citestyle"
             | b"setcitestyle"
-            | b"DeclareGraphicsExtensions"
-            | b"graphicspath"
             | b"linenumbers"
             | b"nolinenumbers"
             | b"theoremstyle"
@@ -477,16 +475,114 @@ impl Engine {
         Ok(())
     }
 
+    #[inline(never)]
+    fn put_url(&mut self, d: &mut Doc, c: &Ctx, text: &[u8]) -> R<()> {
+        if !d.url_setup || self.counter_index(b"biburlbreakpenalty").is_none() {
+            let done = self.put_raw(d, c, text);
+            d.literal_word = true;
+            return done;
+        }
+        // biblatex.def: positive letter/digit counters enable extra breaks;
+        // punctuation uses its separate ordinary and big-break penalties.
+        for (at, ch) in text.iter().enumerate() {
+            if !(32..=126).contains(ch) { continue; }
+            self.put_char(d, c, FONT_TYPEWRITER_REGULAR, *ch as u32)?;
+            d.literal_word = true;
+            let name: &[u8] = match ch {
+                b':' | b'-' => b"biburlbigbreakpenalty",
+                b'.' | b'@' | b'/' | b'\\' | b'!' | b'_' | b'|' | b';' | b'>' | b']' | b')' | b'}'
+                    | b',' | b'?' | b'\'' | b'+' | b'=' | b'#' | b'$' | b'&' | b'*' | b'^' | b'"' => b"biburlbreakpenalty",
+                b'0'..=b'9' => b"biburlnumpenalty",
+                b'A'..=b'Z' => b"biburlucpenalty",
+                b'a'..=b'z' => b"biburllcpenalty",
+                _ => continue,
+            };
+            let penalty = self.counter_value(name);
+            if (ch.is_ascii_alphanumeric() && penalty <= 0) || penalty >= 10000 || at + 1 == text.len() {
+                continue;
+            }
+            self.flush_word(d, false);
+            if let Some(word) = self.words.last_mut() {
+                word.penalty = penalty.clamp(-10000, 10000) as i16;
+                word.forced |= penalty <= -10000;
+            }
+            d.glue_next = true;
+        }
+        Ok(())
+    }
+
     fn put_template(&mut self, d: &mut Doc, c: &Ctx, font: u8, text: &[u8]) -> R<()> {
         let text = self.source_copy(text);
         self.sub_text(d, text, c, font)
     }
 
+    pub(super) fn graphic_setting(&mut self, d: &mut Doc, name: &[u8]) -> R<()> {
+        let value = self.group_text()?;
+        let value = if value.contains(&b'%') {
+            let mut clean = Vec::with_capacity(value.len());
+            let mut at = 0;
+            while at < value.len() {
+                if value[at] == b'%' {
+                    while at < value.len() && value[at] != b'\n' { at += 1; }
+                    if at < value.len() { at += 1; }
+                } else {
+                    let count = if value[at] == b'\\' { 2.min(value.len() - at) } else { 1 };
+                    clean.extend_from_slice(&value[at..at + count]);
+                    at += count;
+                }
+            }
+            self.source_copy(&clean)
+        } else { value };
+        if name == b"DeclareGraphicsExtensions" {
+            let value: Vec<u8> = value.iter().copied().filter(|c| !c.is_ascii_whitespace()).collect();
+            d.graphic_extensions = self.source_copy(&value);
+        } else {
+            let mut depth = 0i32;
+            let mut unsupported = false;
+            for &ch in value {
+                match ch {
+                    b'{' => { depth += 1; unsupported |= depth > 1; }
+                    b'}' => depth -= 1,
+                    b'\\' => unsupported = true,
+                    _ => unsupported |= depth == 0 && !ch.is_ascii_whitespace(),
+                }
+            }
+            if unsupported { self.note_slice(value); }
+            d.graphic_paths = self.lasting(value);
+        }
+        Ok(())
+    }
+
+    /// graphics.sty searches all directories for each extension before trying
+    /// the next extension, including the document directory first.
+    fn graphic_file(&self, paths: &[u8], name: &[u8], extension: &[u8]) -> Option<usize> {
+        let mut candidate = name.to_vec();
+        candidate.extend_from_slice(extension);
+        if let Some(index) = self.file_index(&candidate, &[]) { return Some(index); }
+        if name.starts_with(b"/") { return None; }
+        let mut rest = paths;
+        while let Some(open) = rest.iter().position(|&b| b == b'{') {
+            rest = &rest[open + 1..];
+            let Some(close) = rest.iter().position(|&b| b == b'}') else { break; };
+            candidate.clear();
+            candidate.extend_from_slice(&rest[..close]);
+            candidate.extend_from_slice(name);
+            candidate.extend_from_slice(extension);
+            if let Some(index) = self.file_index(&candidate, &[]) { return Some(index); }
+            rest = &rest[close + 1..];
+        }
+        None
+    }
+
     fn graphic(&mut self, d: &mut Doc, c: &Ctx, font: u8) -> R<()> {
         let options = if self.peek() == b'[' { self.bracketed()? } else { b"" };
         let name = self.loose_argument();
-        let image =
-            self.file_index(name, &[b".png", b".jpg", b".jpeg"]).and_then(|i| super::super::assets::Image::parse(&self.assets.files[i].1));
+        let explicit = name.rsplit(|&b| b == b'/').next().is_some_and(|base| base.contains(&b'.'));
+        let index = if explicit { self.graphic_file(d.graphic_paths, name, b"") } else { None }.or_else(|| {
+            d.graphic_extensions.split(|&b| b == b',').filter(|ext| !ext.is_empty())
+                .find_map(|ext| self.graphic_file(d.graphic_paths, name, ext))
+        });
+        let image = index.and_then(|i| self.assets.image(i));
         let line = d.text_w as f64 * self.doc.pt as f64 / 1000.0;
         let (mut w, mut h) = (0.0, 0.0);
         let mut factor = 1.0;
@@ -576,8 +672,7 @@ impl Engine {
         self.skip_options();
         let text = self.loose_argument();
         let text = self.lasting(text);
-        d.notes += 1;
-        let n = d.notes;
+        let n = self.increment_counter(b"footnote")?.max(0) as u32;
         let mut mark = Vec::with_capacity(24);
         mark.extend_from_slice(b"$^{");
         push_number(&mut mark, n);
@@ -781,9 +876,11 @@ impl Engine {
             }
         }
         match name {
+            b"graphicspath" | b"DeclareGraphicsExtensions" => self.graphic_setting(d, name)?,
             b"," | b";" | b":" | b"!" | b" " | b"/" | b"-" | b"\n" | b"\t" => {
                 if name == b" " || name == b"\n" {
                     self.flush_word(d, false);
+                    self.set_space(*font, c.scale, Some(1000));
                 } else if name != b"-" && name != b"/" && name != b"!" {
                     self.add_kern(d, sc(170, c.scale));
                 }
@@ -830,11 +927,16 @@ impl Engine {
                     if missing {
                         self.note(self.pos);
                     }
-                    self.put_template(d, c, *font, &text)?;
+                    let setup = d.url_setup;
+                    d.url_setup |= self.counter_index(b"biburlbreakpenalty").is_some();
+                    let done = self.put_template(d, c, *font, &text);
+                    d.url_setup = setup;
+                    done?;
                 } else {
                     self.put_citation(d, c, *font, keys)?;
                 }
             }
+            b"biburlsetup" => d.url_setup = true,
             b"url" | b"nolinkurl" | b"path" => {
                 let text = self.loose_argument();
                 let previous = self.active_link;
@@ -842,7 +944,7 @@ impl Engine {
                     self.doc.links.push(link_uri(text));
                     self.active_link = self.doc.links.len() as u32;
                 }
-                let result = self.put_raw(d, c, text);
+                let result = self.put_url(d, c, text);
                 self.active_link = previous;
                 result?;
             }
@@ -1007,7 +1109,13 @@ impl Engine {
                 self.loose_argument();
                 self.styled_group(d, c, *font)?;
             }
-            b"dots" | b"ldots" | b"textellipsis" => self.put_char(d, c, *font, 0x2026)?,
+            b"dots" | b"ldots" | b"textellipsis" => {
+                let gap = self.space_at(*font, c.scale).1;
+                for _ in 0..3 {
+                    self.put_char(d, c, *font, b'.' as u32)?;
+                    self.add_kern(d, gap);
+                }
+            }
             b"LaTeXe" => self.put_text(d, c, *font, b"LaTeX2e")?,
             b"XeTeX" | b"XeLaTeX" | b"LuaTeX" | b"BibTeX" | b"pdfTeX" | b"pdfLaTeX" => self.put_text(d, c, *font, name)?,
             b"thepage" => {
