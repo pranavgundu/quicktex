@@ -869,7 +869,9 @@ impl Engine {
                 self.pos += 1;
             }
             let name = self.slice(start, self.pos);
-            if !self.at_end() { self.pos += 1; }
+            if !self.at_end() {
+                self.pos += 1;
+            }
             return name;
         }
         if c.is_ascii_alphabetic() || (self.at_letter && c == b'@') {
@@ -1883,8 +1885,7 @@ impl Engine {
         }
         atom.bx.w += (count - 1) * step;
         let radius = sc(220, c.scale);
-        self.push_item(c, (atom.bx.w - atom.italic) / 2, -sc(AXIS, c.scale),
-            (count - 1) * step / 2 + radius, radius, IT_ELLIPSE);
+        self.push_item(c, (atom.bx.w - atom.italic) / 2, -sc(AXIS, c.scale), (count - 1) * step / 2 + radius, radius, IT_ELLIPSE);
         atom.bx.e = self.end();
         atom
     }
@@ -2522,24 +2523,38 @@ impl Engine {
         let key = ((font as u64) << 48) | ((scale as u64) << 32) | ((self.doc.pt as u64) << 24) | (cp as u64 + 1);
         let slot = (font as usize * 131 + cp as usize + (scale as usize & 31) * 17) & (TEXT_METRIC_SLOTS - 1);
         if cp < 128 {
-            if self.text_metrics.is_empty() { self.text_metrics.resize(TEXT_METRIC_SLOTS, TextMetric::default()); }
+            if self.text_metrics.is_empty() {
+                self.text_metrics.resize(TEXT_METRIC_SLOTS, TextMetric::default());
+            }
             let metric = self.text_metrics[slot];
-            if metric.key == key { return Some(metric); }
+            if metric.key == key {
+                return Some(metric);
+            }
         }
         let builtin = glyph_id(font, cp).or_else(|| glyph_id(FONT_MAIN_REGULAR, cp));
         let glyph = builtin.or_else(|| self.fallback_glyph(cp))?;
         let m = self.glyph_metric(glyph as usize);
         let natural = sc(m.w as i32, scale);
-        let metric = TextMetric { key, glyph, natural, width: self.advance(font, cp, natural, scale),
-            h: sc(m.h as i32, scale), d: sc(m.d as i32, scale) };
+        let metric = TextMetric {
+            key,
+            glyph,
+            natural,
+            width: self.advance(font, cp, natural, scale),
+            h: sc(m.h as i32, scale),
+            d: sc(m.d as i32, scale),
+        };
         // Fallback outlines can change after registerFont. Only immutable
         // built-in ASCII metrics are cached, never dynamic Unicode glyphs.
-        if cp < 128 && builtin.is_some() { self.text_metrics[slot] = metric; }
+        if cp < 128 && builtin.is_some() {
+            self.text_metrics[slot] = metric;
+        }
         Some(metric)
     }
 
     fn text_glyph(&mut self, c: &Ctx, font: u8, cp: u32, t: &mut Bx) -> R<()> {
-        let Some(metric) = self.text_metric(font, cp, c.scale) else { return self.missing_glyph(c, font, cp, t); };
+        let Some(metric) = self.text_metric(font, cp, c.scale) else {
+            return self.missing_glyph(c, font, cp, t);
+        };
         t.w += self.kern_before(c, font, cp, t.w);
         self.push_glyph(metric.glyph, t.w + (metric.width - metric.natural) / 2, 0, c.grp);
         if let Some(it) = self.items.last_mut() {

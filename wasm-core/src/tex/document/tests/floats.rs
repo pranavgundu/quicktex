@@ -321,14 +321,18 @@ fn top_float_limit_resets_on_new_text_pages() {
 
 #[test]
 fn wide_float_count_limits_and_zero_limit_flush_terminate() {
-    let d = good(r"\documentclass[twocolumn]{article}\begin{document}\setcounter{dbltopnumber}{0}A\begin{figure*}[t]Z\end{figure*}\newpage B\newpage C\end{document}");
+    let d = good(
+        r"\documentclass[twocolumn]{article}\begin{document}\setcounter{dbltopnumber}{0}A\begin{figure*}[t]Z\end{figure*}\newpage B\newpage C\end{document}",
+    );
     assert!(!has_letter(&d, 1, b'Z'));
     assert!(has_letter(&d, d.pages - 1, b'Z'));
 }
 
 #[test]
 fn table_cell_expansions_restore_the_outer_source_reader() {
-    let d = body(r"\setcounter{table}{7}\begin{longtable}{lll}A&B&C\\\multicolumn{3}{c}{{\bfseries Table \thetable{} continued}}\\D&E&F\\\end{longtable}After");
+    let d = body(
+        r"\setcounter{table}{7}\begin{longtable}{lll}A&B&C\\\multicolumn{3}{c}{{\bfseries Table \thetable{} continued}}\\D&E&F\\\end{longtable}After",
+    );
     assert!(has_letter(&d, 0, b'D'));
     assert!(has_letter(&d, 0, b'F'));
     assert!(has_letter(&d, 0, b'7'));

@@ -485,13 +485,15 @@ impl Engine {
         // biblatex.def: positive letter/digit counters enable extra breaks;
         // punctuation uses its separate ordinary and big-break penalties.
         for (at, ch) in text.iter().enumerate() {
-            if !(32..=126).contains(ch) { continue; }
+            if !(32..=126).contains(ch) {
+                continue;
+            }
             self.put_char(d, c, FONT_TYPEWRITER_REGULAR, *ch as u32)?;
             d.literal_word = true;
             let name: &[u8] = match ch {
                 b':' | b'-' => b"biburlbigbreakpenalty",
-                b'.' | b'@' | b'/' | b'\\' | b'!' | b'_' | b'|' | b';' | b'>' | b']' | b')' | b'}'
-                    | b',' | b'?' | b'\'' | b'+' | b'=' | b'#' | b'$' | b'&' | b'*' | b'^' | b'"' => b"biburlbreakpenalty",
+                b'.' | b'@' | b'/' | b'\\' | b'!' | b'_' | b'|' | b';' | b'>' | b']' | b')' | b'}' | b',' | b'?' | b'\'' | b'+' | b'='
+                | b'#' | b'$' | b'&' | b'*' | b'^' | b'"' => b"biburlbreakpenalty",
                 b'0'..=b'9' => b"biburlnumpenalty",
                 b'A'..=b'Z' => b"biburlucpenalty",
                 b'a'..=b'z' => b"biburllcpenalty",
@@ -523,8 +525,12 @@ impl Engine {
             let mut at = 0;
             while at < value.len() {
                 if value[at] == b'%' {
-                    while at < value.len() && value[at] != b'\n' { at += 1; }
-                    if at < value.len() { at += 1; }
+                    while at < value.len() && value[at] != b'\n' {
+                        at += 1;
+                    }
+                    if at < value.len() {
+                        at += 1;
+                    }
                 } else {
                     let count = if value[at] == b'\\' { 2.min(value.len() - at) } else { 1 };
                     clean.extend_from_slice(&value[at..at + count]);
@@ -532,7 +538,9 @@ impl Engine {
                 }
             }
             self.source_copy(&clean)
-        } else { value };
+        } else {
+            value
+        };
         if name == b"DeclareGraphicsExtensions" {
             let value: Vec<u8> = value.iter().copied().filter(|c| !c.is_ascii_whitespace()).collect();
             d.graphic_extensions = self.source_copy(&value);
@@ -541,13 +549,18 @@ impl Engine {
             let mut unsupported = false;
             for &ch in value {
                 match ch {
-                    b'{' => { depth += 1; unsupported |= depth > 1; }
+                    b'{' => {
+                        depth += 1;
+                        unsupported |= depth > 1;
+                    }
                     b'}' => depth -= 1,
                     b'\\' => unsupported = true,
                     _ => unsupported |= depth == 0 && !ch.is_ascii_whitespace(),
                 }
             }
-            if unsupported { self.note_slice(value); }
+            if unsupported {
+                self.note_slice(value);
+            }
             d.graphic_paths = self.lasting(value);
         }
         Ok(())
@@ -558,17 +571,25 @@ impl Engine {
     fn graphic_file(&self, paths: &[u8], name: &[u8], extension: &[u8]) -> Option<usize> {
         let mut candidate = name.to_vec();
         candidate.extend_from_slice(extension);
-        if let Some(index) = self.file_index(&candidate, &[]) { return Some(index); }
-        if name.starts_with(b"/") { return None; }
+        if let Some(index) = self.file_index(&candidate, &[]) {
+            return Some(index);
+        }
+        if name.starts_with(b"/") {
+            return None;
+        }
         let mut rest = paths;
         while let Some(open) = rest.iter().position(|&b| b == b'{') {
             rest = &rest[open + 1..];
-            let Some(close) = rest.iter().position(|&b| b == b'}') else { break; };
+            let Some(close) = rest.iter().position(|&b| b == b'}') else {
+                break;
+            };
             candidate.clear();
             candidate.extend_from_slice(&rest[..close]);
             candidate.extend_from_slice(name);
             candidate.extend_from_slice(extension);
-            if let Some(index) = self.file_index(&candidate, &[]) { return Some(index); }
+            if let Some(index) = self.file_index(&candidate, &[]) {
+                return Some(index);
+            }
             rest = &rest[close + 1..];
         }
         None
@@ -579,7 +600,9 @@ impl Engine {
         let name = self.loose_argument();
         let explicit = name.rsplit(|&b| b == b'/').next().is_some_and(|base| base.contains(&b'.'));
         let index = if explicit { self.graphic_file(d.graphic_paths, name, b"") } else { None }.or_else(|| {
-            d.graphic_extensions.split(|&b| b == b',').filter(|ext| !ext.is_empty())
+            d.graphic_extensions
+                .split(|&b| b == b',')
+                .filter(|ext| !ext.is_empty())
                 .find_map(|ext| self.graphic_file(d.graphic_paths, name, ext))
         });
         let image = index.and_then(|i| self.assets.image(i));

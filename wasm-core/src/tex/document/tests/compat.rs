@@ -560,15 +560,19 @@ fn verbatim_keeps_commands_as_text() {
 
 #[test]
 fn makeatletter_definitions_preserve_internal_control_words_after_makeatother() {
-    let d = clean_body(r"\makeatletter
+    let d = clean_body(
+        r"\makeatletter
         \def\inner@word{Internal}
         \newcommand{\publicword}{\inner@word}
         \newcommand{\defaultword}[1][\inner@word]{#1}
         \makeatother
-        \publicword{} \defaultword{}");
+        \publicword{} \defaultword{}",
+    );
     let expected = clean_body("Internal Internal");
-    assert_eq!(d.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>(),
-        expected.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>());
+    assert_eq!(
+        d.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>(),
+        expected.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>()
+    );
     assert_eq!(d.pages, expected.pages);
 }
 
@@ -581,8 +585,10 @@ fn internal_macro_definitions_do_not_execute_their_body() {
 fn makeatother_restores_source_control_word_boundaries() {
     let d = clean_body(r"\def\plain{A}\makeatletter\def\plain@word{B}\makeatother\plain@word");
     let expected = clean_body("A@word");
-    assert_eq!(d.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>(),
-        expected.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>());
+    assert_eq!(
+        d.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>(),
+        expected.all_items().iter().map(|i| (i.kind, i.a)).collect::<Vec<_>>()
+    );
 }
 
 #[test]

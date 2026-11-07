@@ -691,7 +691,13 @@ impl Engine {
         let spare = (width - total).max(0);
         let mut x = left;
         if stretches == 0 {
-            x += if d.center { spare / 2 } else if d.noindent { 0 } else { d.parindent };
+            x += if d.center {
+                spare / 2
+            } else if d.noindent {
+                0
+            } else {
+                d.parindent
+            };
         }
         d.noindent = false;
         let y = self.place_line(d, above, below);
@@ -740,8 +746,9 @@ impl Engine {
         let limit = self.counter_value(b"dbltopnumber").max(0) as usize;
         for i in 0..self.store.held.len() {
             let held = self.store.held[i];
-            if (!force && !held.unrestricted && count >= limit)
-                || (count > 0 && used + held.h > d.frame_h) { break; }
+            if (!force && !held.unrestricted && count >= limit) || (count > 0 && used + held.h > d.frame_h) {
+                break;
+            }
             self.release(held, d.frame_left, d.frame_top + used);
             used += held.h + self.pt_units(WIDE_FLOAT_GAP);
             count += 1;
@@ -775,7 +782,10 @@ impl Engine {
         for i in 0..self.store.deferred.len() {
             let held = self.store.deferred[i];
             if (!force && !held.unrestricted && (d.float_counts[0] >= top || d.float_counts[2] >= total))
-                || (count > 0 && used + held.h > d.text_h) { break; }
+                || (count > 0 && used + held.h > d.text_h)
+            {
+                break;
+            }
             self.release(held, d.left, d.top + used);
             used += held.h + d.float_gap;
             d.float_counts[0] += 1;
@@ -841,8 +851,7 @@ impl Engine {
         let bottom_full = d.float_counts[1] >= self.counter_value(b"bottomnumber").max(0) as u32;
         let top_full = d.float_counts[0] >= self.counter_value(b"topnumber").max(0) as u32;
         let bottom_only = !here && placement.contains(&b'b') && !placement.contains(&b't');
-        if bottom_only && fits
-            && (unrestricted || (!bottom_full && !total_full)) {
+        if bottom_only && fits && (unrestricted || (!bottom_full && !total_full)) {
             let held = self.stash(items, art, h);
             self.store.bottom.push(held);
             d.bottom_h += h + gap;
@@ -850,9 +859,13 @@ impl Engine {
             d.float_counts[2] += 1;
             return Ok(());
         }
-        if !placement.contains(&b'H') && ((!here && !d.fresh) || (!fits && placement.contains(&b't'))
-            || !self.store.deferred.is_empty() || (bottom_only && (!fits || (!unrestricted && bottom_full)))
-            || (!unrestricted && (total_full || (!here && top_full)))) {
+        if !placement.contains(&b'H')
+            && ((!here && !d.fresh)
+                || (!fits && placement.contains(&b't'))
+                || !self.store.deferred.is_empty()
+                || (bottom_only && (!fits || (!unrestricted && bottom_full)))
+                || (!unrestricted && (total_full || (!here && top_full))))
+        {
             let mut held = self.stash(items, art, h);
             held.unrestricted = unrestricted;
             self.store.deferred.push(held);
@@ -881,7 +894,9 @@ impl Engine {
         }
         if !placement.contains(&b'H') {
             d.float_counts[2] += 1;
-            if !here { d.float_counts[0] += 1; }
+            if !here {
+                d.float_counts[0] += 1;
+            }
         }
         let (dx, dy) = (d.left + left, d.top + y);
         for it in &mut self.doc.items[items..] {

@@ -76,7 +76,6 @@ struct Fit {
 /// A font's interword space: its width, stretch, shrink and extra space.
 type Space = (i32, i32, i32, i32);
 
-
 impl Fit {
     /// The interword glue TeX inserts after a word with this space factor.
     #[inline(always)]
@@ -362,13 +361,7 @@ fn open_ended(body: &[u8]) -> bool {
 fn ignored_setting(name: &[u8]) -> bool {
     matches!(
         name,
-        b"pagestyle"
-            | b"thispagestyle"
-            | b"pagenumbering"
-            | b"label"
-            | b"bibliographystyle"
-            | b"usetikzlibrary"
-            | b"pgfplotsset"
+        b"pagestyle" | b"thispagestyle" | b"pagenumbering" | b"label" | b"bibliographystyle" | b"usetikzlibrary" | b"pgfplotsset"
     )
 }
 
@@ -985,7 +978,8 @@ impl Engine {
                 d.open_groups -= 1;
                 self.pos += 1;
                 if let Some((ctx, font, center, paths, extensions, urls)) = self.store.groups.pop() {
-                    (d.ctx, d.body_font, d.center, d.graphic_paths, d.graphic_extensions, d.url_setup) = (ctx, font, center, paths, extensions, urls);
+                    (d.ctx, d.body_font, d.center, d.graphic_paths, d.graphic_extensions, d.url_setup) =
+                        (ctx, font, center, paths, extensions, urls);
                 }
                 continue;
             }
@@ -1943,7 +1937,18 @@ impl Engine {
     fn flush_word(&mut self, d: &mut Doc, forced: bool) {
         if let Some(bx) = d.word.take() {
             let after = self.space_factor(bx);
-            self.words.push(Word { bx, forced, gap: !d.glue_next, hyphen: None, penalty: 0, literal: d.literal_word, after, tied: d.tie_next, below: 0, space: (0, 0, 0, 0) });
+            self.words.push(Word {
+                bx,
+                forced,
+                gap: !d.glue_next,
+                hyphen: None,
+                penalty: 0,
+                literal: d.literal_word,
+                after,
+                tied: d.tie_next,
+                below: 0,
+                space: (0, 0, 0, 0),
+            });
             d.glue_next = false;
             d.tie_next = false;
             d.literal_word = false;
@@ -1984,7 +1989,9 @@ impl Engine {
     fn inline(&mut self, d: &mut Doc, c: &Ctx, font: &mut u8, group: bool) -> R<()> {
         let settings = (d.graphic_paths, d.graphic_extensions, d.url_setup);
         let done = self.inline_content(d, c, font, group);
-        if group { (d.graphic_paths, d.graphic_extensions, d.url_setup) = settings; }
+        if group {
+            (d.graphic_paths, d.graphic_extensions, d.url_setup) = settings;
+        }
         done
     }
 
@@ -2573,7 +2580,16 @@ impl Engine {
                         (0, FIT_DECENT)
                     } else {
                         let bad = badness(excess, stretch + (fit.emergency + fit.fill) as i64);
-                        (bad, if bad > 99 { FIT_VERY_LOOSE } else if bad > 12 { FIT_LOOSE } else { FIT_DECENT })
+                        (
+                            bad,
+                            if bad > 99 {
+                                FIT_VERY_LOOSE
+                            } else if bad > 12 {
+                                FIT_LOOSE
+                            } else {
+                                FIT_DECENT
+                            },
+                        )
                     }
                 } else {
                     let bad = if over > 0 { INF_BAD + 1 } else { badness(-excess, shrink) };
@@ -2588,7 +2604,14 @@ impl Engine {
                     let demerit = LINE_PENALTY + bad;
                     demerit * demerit + if discretionary > 0 { HYPHEN_PENALTY * HYPHEN_PENALTY } else { 0 }
                 };
-                let line = line + if penalty >= 0 { penalty * penalty } else if penalty > -10000 { -penalty * penalty } else { 0 };
+                let line = line
+                    + if penalty >= 0 {
+                        penalty * penalty
+                    } else if penalty > -10000 {
+                        -penalty * penalty
+                    } else {
+                        0
+                    };
                 let doubled = discretionary > 0 && i > 0 && words[i - 1].hyphen.is_some();
                 for from in 0..4 {
                     let previous = best[i * 4 + from].0;
@@ -2698,9 +2721,17 @@ impl Engine {
                 let _ = self.reserve_notes(d, from, to, h + dep);
             }
             let between = |line: usize, broken: bool| {
-                (if line == 0 { CLUB_PENALTY } else { 0 }) + (if line + 2 == lines { WIDOW_PENALTY } else { 0 }) + (if broken { BROKEN_PENALTY } else { 0 })
+                (if line == 0 { CLUB_PENALTY } else { 0 })
+                    + (if line + 2 == lines { WIDOW_PENALTY } else { 0 })
+                    + (if broken { BROKEN_PENALTY } else { 0 })
             };
-            let before = if line > 0 { between(line - 1, hyphened) } else if d.after_heading { NO_BREAK } else { 0 };
+            let before = if line > 0 {
+                between(line - 1, hyphened)
+            } else if d.after_heading {
+                NO_BREAK
+            } else {
+                0
+            };
             hyphened = hyphen.is_some();
             d.line_penalties = (before, if line + 1 < lines { between(line, hyphened) } else { 0 });
             line += 1;

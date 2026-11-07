@@ -116,8 +116,12 @@ fn missing_crossref_parent_is_diagnosed() {
 #[test]
 fn unused_inherited_entries_do_not_block_independent_references() {
     let mut e = Engine::new();
-    project(&mut e, b"refs.bib", br"@book{used, author={Jane Doe}, title={Independent}, year=2024}
-        @inproceedings{unused, title={Paper}, crossref={proceedings}}");
+    project(
+        &mut e,
+        b"refs.bib",
+        br"@book{used, author={Jane Doe}, title={Independent}, year=2024}
+        @inproceedings{unused, title={Paper}, crossref={proceedings}}",
+    );
     run(&mut e, &article(r"\cite{used}\bibliography{refs}")).unwrap();
     assert!(e.warned.is_empty());
     assert!(e.label_bytes.windows(9).any(|w| w == b"cite:used"));
@@ -139,9 +143,11 @@ fn bibliography_and_included_sources_share_normalized_paths() {
 
 #[test]
 fn biblatex_url_counters_enable_breaks_without_inserted_hyphens() {
-    for (counter, url) in [("biburllcpenalty", "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"),
+    for (counter, url) in [
+        ("biburllcpenalty", "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz"),
         ("biburlucpenalty", "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ"),
-        ("biburlnumpenalty", "01234567890123456789012345678901234567890123456789012345")] {
+        ("biburlnumpenalty", "01234567890123456789012345678901234567890123456789012345"),
+    ] {
         let preamble = r"\usepackage[left=277pt,right=277pt]{geometry}\usepackage{biblatex}\setlength{\parindent}{0pt}\biburlsetup";
         let disabled = good(&with(preamble, &format!(r"\url{{{url}}}")));
         assert_eq!(disabled.baselines(0).len(), 1);
@@ -158,19 +164,24 @@ fn biblatex_url_counters_enable_breaks_without_inserted_hyphens() {
 fn biblatex_url_counter_lifetime_and_defaults_follow_package_loading() {
     let mut e = Engine::new();
     run(&mut e, &with(r"\usepackage{biblatex}", "Text")).unwrap();
-    for (name, value) in [(b"biburlbigbreakpenalty".as_slice(),100),(b"biburlbreakpenalty",200),
-        (b"biburllcpenalty",0),(b"biburlucpenalty",0),(b"biburlnumpenalty",0)] {
+    for (name, value) in [
+        (b"biburlbigbreakpenalty".as_slice(), 100),
+        (b"biburlbreakpenalty", 200),
+        (b"biburllcpenalty", 0),
+        (b"biburlucpenalty", 0),
+        (b"biburlnumpenalty", 0),
+    ] {
         assert_eq!(e.counter_value(name), value);
     }
     run(&mut e, &with(r"\usepackage{biblatex}\setcounter{biburllcpenalty}{7000}\usepackage{biblatex}", "Text")).unwrap();
-    assert_eq!(e.counter_value(b"biburllcpenalty"),7000);
+    assert_eq!(e.counter_value(b"biburllcpenalty"), 7000);
     assert!(run(&mut e, &article(r"\setcounter{biburllcpenalty}{7000}")).is_err());
 }
 
 #[test]
 fn biblatex_punctuation_break_penalties_control_url_wrapping() {
     let preamble = r"\usepackage[left=277pt,right=277pt]{geometry}\usepackage{biblatex}\setlength{\parindent}{0pt}\biburlsetup";
-    for (counter, separator) in [("biburlbreakpenalty", "."),("biburlbigbreakpenalty", ":")] {
+    for (counter, separator) in [("biburlbreakpenalty", "."), ("biburlbigbreakpenalty", ":")] {
         let url = ["zzzz"; 8].join(separator);
         let ordinary = good(&with(preamble, &format!(r"\url{{{url}}}")));
         assert!(ordinary.baselines(0).len() > 2);
@@ -182,7 +193,8 @@ fn biblatex_punctuation_break_penalties_control_url_wrapping() {
 
 #[test]
 fn biblatex_url_setup_is_local_and_not_automatic_in_body_text() {
-    let setup = r"\usepackage[left=277pt,right=277pt]{geometry}\usepackage{biblatex}\setlength{\parindent}{0pt}\setcounter{biburllcpenalty}{7000}";
+    let setup =
+        r"\usepackage[left=277pt,right=277pt]{geometry}\usepackage{biblatex}\setlength{\parindent}{0pt}\setcounter{biburllcpenalty}{7000}";
     let url = "ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let enabled = r"\setcounter{biburlucpenalty}{7000}";
     let ordinary = good(&with(setup, &format!(r"{enabled}\url{{{url}}}")));
@@ -190,5 +202,5 @@ fn biblatex_url_setup_is_local_and_not_automatic_in_body_text() {
     let scoped = good(&with(setup, &format!(r"{enabled}{{\biburlsetup\url{{{url}}}}}\par\url{{{url}}}")));
     let lines = scoped.baselines(0).len();
     let active = good(&with(setup, &format!(r"{enabled}\biburlsetup\url{{{url}}}")));
-    assert_eq!(lines, active.baselines(0).len()+1);
+    assert_eq!(lines, active.baselines(0).len() + 1);
 }

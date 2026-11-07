@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn contour_bezier_coordinates_have_unambiguous_separators() {
-    use crate::tex::{Item, IT_ELLIPSE};
+    use crate::tex::{IT_ELLIPSE, Item};
     let item = Item { x: 0, y: 0, a: 200, b: 100, g: 0, kind: IT_ELLIPSE };
     let mut bytes = [0u8; 512];
     let len = crate::emit::brace_path(&item, &mut bytes);

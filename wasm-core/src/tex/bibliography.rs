@@ -487,7 +487,9 @@ impl Bibliography {
                     ));
                 }
             }
-            if result.format != Format::Plain { result.warning_at = *pos; }
+            if result.format != Format::Plain {
+                result.warning_at = *pos;
+            }
         }
         if req.author_year {
             result.author_year = true;
@@ -572,14 +574,17 @@ impl Bibliography {
     fn inherit(&mut self, biblatex: bool, expanded: &mut usize) -> Result<(), Vec<u8>> {
         let absent = usize::MAX;
         // Preserve original links so processing order cannot hide nested links.
-        let parents: Vec<usize> = self.entries.iter().map(|entry| {
-            if !entry.fields.iter().any(|(name, _)| name == b"crossref") {
-                absent
-            } else {
-                self.entries.iter().position(|parent| parent.key == entry.field(b"crossref"))
-                    .unwrap_or(self.entries.len())
-            }
-        }).collect();
+        let parents: Vec<usize> = self
+            .entries
+            .iter()
+            .map(|entry| {
+                if !entry.fields.iter().any(|(name, _)| name == b"crossref") {
+                    absent
+                } else {
+                    self.entries.iter().position(|parent| parent.key == entry.field(b"crossref")).unwrap_or(self.entries.len())
+                }
+            })
+            .collect();
         let mut counts = alloc::vec![0usize; self.entries.len()];
         for child in 0..self.entries.len() {
             let entry = &self.entries[child];
@@ -735,23 +740,93 @@ impl Bibliography {
         format_names(out, authors, self.format);
         let springer = self.format == Format::Springer;
         let ieee = self.format == Format::Ieee;
-        if !authors.is_empty() { out.extend_from_slice(if springer { b": " } else if ieee { b", " } else { b". " }); }
-        if self.format == Format::Acm { field(out, entry.field(b"year"), b"", b". "); }
+        if !authors.is_empty() {
+            out.extend_from_slice(if springer {
+                b": "
+            } else if ieee {
+                b", "
+            } else {
+                b". "
+            });
+        }
+        if self.format == Format::Acm {
+            field(out, entry.field(b"year"), b"", b". ");
+        }
         let book_entry = matches!(entry.kind.as_slice(), b"book" | b"proceedings" | b"manual");
         let title = entry.field(b"title");
         let title = if !book_entry && self.format != Format::Acm { sentence_case(title) } else { title.to_vec() };
-        field(out, &title, if book_entry && !springer { b"\\textit{" } else if ieee { b"``" } else { b"" },
-            if book_entry && !springer { b"}. " } else if ieee { b",'' " } else { b". " });
+        field(
+            out,
+            &title,
+            if book_entry && !springer {
+                b"\\textit{"
+            } else if ieee {
+                b"``"
+            } else {
+                b""
+            },
+            if book_entry && !springer {
+                b"}. "
+            } else if ieee {
+                b",'' "
+            } else {
+                b". "
+            },
+        );
         let journal = entry.field(b"journal");
         let book = entry.field(b"booktitle");
-        field(out, journal, if springer { b"" } else { b"\\textit{" }, if springer { b" " } else if ieee { b"}, " } else { b"} " });
+        field(
+            out,
+            journal,
+            if springer { b"" } else { b"\\textit{" },
+            if springer {
+                b" "
+            } else if ieee {
+                b"}, "
+            } else {
+                b"} "
+            },
+        );
         field(out, book, if ieee { b"in \\textit{" } else { b"In: \\textit{" }, b"}. ");
-        field(out, entry.field(b"volume"), if ieee { b"vol.~" } else if springer { b"\\textbf{" } else { b"" },
-            if ieee || self.format == Format::Acm { b", " } else { b"}" });
-        field(out, entry.field(b"number"), if ieee { b"no.~" } else if springer { b"(" } else { b"" },
-            if springer { b"), " } else { b", " });
-        if self.format == Format::Acm && !journal.is_empty() { field(out, entry.field(b"year"), b"(", b"), "); }
-        field(out, entry.field(b"pages"), if ieee || !book.is_empty() { b"pp.~" } else { b"" }, if ieee { b", " } else if springer { b" " } else { b". " });
+        field(
+            out,
+            entry.field(b"volume"),
+            if ieee {
+                b"vol.~"
+            } else if springer {
+                b"\\textbf{"
+            } else {
+                b""
+            },
+            if ieee || self.format == Format::Acm { b", " } else { b"}" },
+        );
+        field(
+            out,
+            entry.field(b"number"),
+            if ieee {
+                b"no.~"
+            } else if springer {
+                b"("
+            } else {
+                b""
+            },
+            if springer { b"), " } else { b", " },
+        );
+        if self.format == Format::Acm && !journal.is_empty() {
+            field(out, entry.field(b"year"), b"(", b"), ");
+        }
+        field(
+            out,
+            entry.field(b"pages"),
+            if ieee || !book.is_empty() { b"pp.~" } else { b"" },
+            if ieee {
+                b", "
+            } else if springer {
+                b" "
+            } else {
+                b". "
+            },
+        );
         if ieee {
             field(out, entry.field(b"address"), b"", b": ");
             field(out, entry.field(b"publisher"), b"", b", ");
@@ -825,13 +900,18 @@ fn sentence_case(value: &[u8]) -> Vec<u8> {
     for ch in &mut text {
         match *ch {
             b'{' => depth += 1,
-            b'}' => { depth -= 1; first = false; },
+            b'}' => {
+                depth -= 1;
+                first = false;
+            }
             b'\\' => command = true,
-            _ if command && ch.is_ascii_alphabetic() => {},
+            _ if command && ch.is_ascii_alphabetic() => {}
             _ => {
                 command = false;
                 if depth == 0 && ch.is_ascii_alphabetic() {
-                    if !first { ch.make_ascii_lowercase(); }
+                    if !first {
+                        ch.make_ascii_lowercase();
+                    }
                     first = false;
                 }
             }
@@ -853,12 +933,20 @@ fn format_names(out: &mut Vec<u8>, mut names: &[u8], style: Format) {
     let mut first = true;
     while !names.is_empty() {
         let mut depth = 0i32;
-        let end = (0..names.len()).find(|&at| {
-            match names[at] { b'{' => depth += 1, b'}' => depth -= 1, _ => {} }
-            depth == 0 && names[at..].starts_with(b" and ")
-        }).unwrap_or(names.len());
+        let end = (0..names.len())
+            .find(|&at| {
+                match names[at] {
+                    b'{' => depth += 1,
+                    b'}' => depth -= 1,
+                    _ => {}
+                }
+                depth == 0 && names[at..].starts_with(b" and ")
+            })
+            .unwrap_or(names.len());
         let name = names[..end].trim_ascii();
-        if !first { out.extend_from_slice(if style == Format::Ieee || style == Format::Acm { b" and " } else { b", " }); }
+        if !first {
+            out.extend_from_slice(if style == Format::Ieee || style == Format::Acm { b" and " } else { b", " });
+        }
         first = false;
         if name.starts_with(b"{") && name.ends_with(b"}") {
             out.extend_from_slice(name);
@@ -868,33 +956,50 @@ fn format_names(out: &mut Vec<u8>, mut names: &[u8], style: Format) {
                 (name[..at].trim_ascii(), name[at + 1..].trim_ascii())
             } else if let Some(at) = name.iter().rposition(u8::is_ascii_whitespace) {
                 (name[at + 1..].trim_ascii(), name[..at].trim_ascii())
-            } else { (name, b"".as_slice()) };
+            } else {
+                (name, b"".as_slice())
+            };
             if style == Format::Springer {
                 out.extend_from_slice(last);
-                if !given.is_empty() { out.extend_from_slice(b", "); }
+                if !given.is_empty() {
+                    out.extend_from_slice(b", ");
+                }
             }
-            if style == Format::Acm { out.extend_from_slice(given); }
-            else {
+            if style == Format::Acm {
+                out.extend_from_slice(given);
+            } else {
                 for word in given.split(u8::is_ascii_whitespace).filter(|word| !word.is_empty()) {
                     // Preserve protected/accented given names rather than
                     // truncating a TeX accent or a UTF-8 code point.
-                    if !word[0].is_ascii_alphabetic() { out.extend_from_slice(word); }
-                    else {
+                    if !word[0].is_ascii_alphabetic() {
+                        out.extend_from_slice(word);
+                    } else {
                         for (part, syllable) in word.split(|&c| c == b'-').enumerate() {
-                            if part > 0 && style == Format::Ieee { out.push(b'-'); }
-                            if let Some(&initial) = syllable.first() { out.push(initial); out.push(b'.'); }
+                            if part > 0 && style == Format::Ieee {
+                                out.push(b'-');
+                            }
+                            if let Some(&initial) = syllable.first() {
+                                out.push(initial);
+                                out.push(b'.');
+                            }
                         }
                     }
                     out.push(b' ');
                 }
-                if out.last() == Some(&b' ') { out.pop(); }
+                if out.last() == Some(&b' ') {
+                    out.pop();
+                }
             }
             if style != Format::Springer {
-                if !given.is_empty() { out.push(b' '); }
+                if !given.is_empty() {
+                    out.push(b' ');
+                }
                 out.extend_from_slice(last);
             }
         }
-        if end == names.len() { break; }
+        if end == names.len() {
+            break;
+        }
         names = &names[end + 5..];
     }
 }
@@ -1193,13 +1298,15 @@ mod tests {
     }
     #[test]
     fn inheritance_does_not_invent_biblatex_or_nested_crossref_rules() {
-        for source in [br"\usepackage{biblatex}\cite{a}\bibliography{data}".as_slice(),
-            br"\cite{a}\addbibresource{data.bib}"] {
+        for source in [br"\usepackage{biblatex}\cite{a}\bibliography{data}".as_slice(), br"\cite{a}\addbibresource{data.bib}"] {
             let error = Bibliography::prepare(source, &[(b"data.bib".to_vec(), CROSSREFS.to_vec())]).err().unwrap();
             assert!(String::from_utf8_lossy(&error.0).contains("BibLaTeX inheritance is unsupported"));
         }
-        for data in [br"@book{a,crossref={b}} @book{b,crossref={c}} @book{c,title={Root}}".as_slice(),
-            br"@book{a,crossref={b}} @book{b,crossref={a}}", br"@book{a,crossref={a}}"] {
+        for data in [
+            br"@book{a,crossref={b}} @book{b,crossref={c}} @book{c,title={Root}}".as_slice(),
+            br"@book{a,crossref={b}} @book{b,crossref={a}}",
+            br"@book{a,crossref={a}}",
+        ] {
             let error = Bibliography::prepare(br"\nocite{*}\bibliography{data}", &[(b"data.bib".to_vec(), data.to_vec())]).err().unwrap();
             assert!(String::from_utf8_lossy(&error.0).contains("nested or cyclic"));
         }

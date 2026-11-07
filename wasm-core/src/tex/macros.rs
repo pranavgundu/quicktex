@@ -215,7 +215,9 @@ impl Engine {
                 } else {
                     // A control symbol consumes exactly one character, even
                     // when it is a backslash or percent sign.
-                    if at == start && at < text.len() { at += 1; }
+                    if at == start && at < text.len() {
+                        at += 1;
+                    }
                     out.extend_from_slice(&text[start..at]);
                 }
             } else {
@@ -286,7 +288,9 @@ impl Engine {
                 continue;
             }
             if ch == b'%' {
-                while !self.at_end() && self.peek() != b'\n' { self.pos += 1; }
+                while !self.at_end() && self.peek() != b'\n' {
+                    self.pos += 1;
+                }
                 continue;
             }
             if ch == stop && depth == 0 {
@@ -1290,9 +1294,22 @@ mod counter_invariants {
 
     #[test]
     fn builtin_indices_match_initialization_and_reset_rules() {
-        let names: &[&[u8]] =
-            &[b"page", b"section", b"subsection", b"subsubsection", b"equation", b"figure", b"table", b"secnumdepth", b"tocdepth", b"footnote",
-              b"topnumber", b"bottomnumber", b"totalnumber", b"dbltopnumber"];
+        let names: &[&[u8]] = &[
+            b"page",
+            b"section",
+            b"subsection",
+            b"subsubsection",
+            b"equation",
+            b"figure",
+            b"table",
+            b"secnumdepth",
+            b"tocdepth",
+            b"footnote",
+            b"topnumber",
+            b"bottomnumber",
+            b"totalnumber",
+            b"dbltopnumber",
+        ];
         let mut engine = Engine::new();
         assert_eq!(engine.counter_index(b"equation"), None);
         engine.initialize_counters();

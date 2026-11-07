@@ -29,8 +29,9 @@ impl Assets {
         let image = Image::parse(&self.files.get(index)?.1);
         let bytes = image.as_ref().map_or(0, |image| image.url.len() + image.data.len() + image.alpha.len());
         if bytes <= IMAGE_CACHE_BYTES {
-            while !self.image_cache.is_empty() && (self.image_cache.len() >= IMAGE_CACHE_ENTRIES
-                || self.image_cache_bytes + bytes > IMAGE_CACHE_BYTES) {
+            while !self.image_cache.is_empty()
+                && (self.image_cache.len() >= IMAGE_CACHE_ENTRIES || self.image_cache_bytes + bytes > IMAGE_CACHE_BYTES)
+            {
                 let (_, _, removed) = self.image_cache.remove(0);
                 self.image_cache_bytes -= removed;
             }
@@ -226,15 +227,21 @@ pub(super) fn file_name(path: &[u8]) -> Cow<'_, [u8]> {
     for part in path.split(|&b| b == b'/') {
         match part {
             b"" | b"." => {}
-            b".." if parts.last().is_some_and(|last| *last != b"..") => { parts.pop(); }
+            b".." if parts.last().is_some_and(|last| *last != b"..") => {
+                parts.pop();
+            }
             b".." if absolute => {}
             _ => parts.push(part),
         }
     }
     let mut out = Vec::with_capacity(path.len());
-    if absolute { out.push(b'/'); }
+    if absolute {
+        out.push(b'/');
+    }
     for part in parts {
-        if !out.is_empty() && out.last() != Some(&b'/') { out.push(b'/'); }
+        if !out.is_empty() && out.last() != Some(&b'/') {
+            out.push(b'/');
+        }
         out.extend_from_slice(part);
     }
     Cow::Owned(out)
@@ -243,10 +250,12 @@ pub(super) fn file_name(path: &[u8]) -> Cow<'_, [u8]> {
 pub(super) fn find_file(files: &[(Vec<u8>, Vec<u8>)], name: &[u8], extensions: &[&[u8]]) -> Option<usize> {
     let name = file_name(name);
     files.iter().position(|(n, _)| file_name(n).as_ref() == name.as_ref()).or_else(|| {
-        extensions.iter().find_map(|ext| files.iter().position(|(n, _)| {
-            let n = file_name(n);
-            n.starts_with(&name) && &n[name.len()..] == *ext
-        }))
+        extensions.iter().find_map(|ext| {
+            files.iter().position(|(n, _)| {
+                let n = file_name(n);
+                n.starts_with(&name) && &n[name.len()..] == *ext
+            })
+        })
     })
 }
 
@@ -299,8 +308,14 @@ mod tests {
         assert!(engine.assets.image(0).is_some());
         // A full cache must evict before admitting another decoded image.
         engine.assets.image_cache.clear();
-        let large = Image { url: Arc::new(alloc::vec![0; IMAGE_CACHE_BYTES]), data: Arc::new(Vec::new()),
-            alpha: Arc::new(Vec::new()), pixels: (1, 1), size: (0, 0), jpeg: false };
+        let large = Image {
+            url: Arc::new(alloc::vec![0; IMAGE_CACHE_BYTES]),
+            data: Arc::new(Vec::new()),
+            alpha: Arc::new(Vec::new()),
+            pixels: (1, 1),
+            size: (0, 0),
+            jpeg: false,
+        };
         engine.assets.image_cache.push((1, Some(large), IMAGE_CACHE_BYTES));
         engine.assets.image_cache_bytes = IMAGE_CACHE_BYTES;
         assert!(engine.assets.image(0).is_some());

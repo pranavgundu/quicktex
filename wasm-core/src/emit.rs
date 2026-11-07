@@ -168,8 +168,10 @@ unsafe fn ellipse(p: &mut *mut u8, it: &Item) {
                 (kx, 0, rx, ry - ky, rx, ry),
             ] {
                 byte(p, b'c');
-                pair(p, a, b); byte(p, b' ');
-                pair(p, c, d); byte(p, b' ');
+                pair(p, a, b);
+                byte(p, b' ');
+                pair(p, c, d);
+                byte(p, b' ');
                 pair(p, x, y);
             }
             byte(p, b'z');
@@ -181,7 +183,11 @@ pub(crate) fn brace_path(it: &Item, out: &mut [u8; 512]) -> usize {
     unsafe {
         let base = out.as_mut_ptr();
         let mut q = base;
-        if it.kind == IT_ELLIPSE { ellipse(&mut q, it); } else { brace(&mut q, it); }
+        if it.kind == IT_ELLIPSE {
+            ellipse(&mut q, it);
+        } else {
+            brace(&mut q, it);
+        }
         q.offset_from(base) as usize
     }
 }
