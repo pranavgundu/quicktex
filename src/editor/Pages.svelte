@@ -241,10 +241,10 @@
     onpointerdown={grab}
     ondblclick={(event) => zoomAt(doubleClickZoom(zoom), event.clientX, event.clientY)}
   >
-    <div class="graph-paper flex min-h-full w-max min-w-full flex-col items-center gap-6 p-6 leading-none" style:font-size="{size}px">
+    <div class="preview-well flex min-h-full w-max min-w-full flex-col items-center gap-6 p-6 leading-none" style:font-size="{size}px">
       {#each { length: count }, page (page)}
         <article
-          class={['flex-none bg-white text-black ring-1 ring-rule-strong [&_svg]:block', dragging ? 'cursor-grabbing' : 'cursor-grab']}
+          class={['flex-none bg-white text-black shadow-md ring-1 ring-rule [&_svg]:block', dragging ? 'cursor-grabbing' : 'cursor-grab']}
           aria-label="Page {page + 1} of {count}"
           style:width="{pageWidth}em"
           style:height="{pageHeight}em"

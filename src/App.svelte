@@ -8,7 +8,7 @@
   import { charIndex } from './lib/latex'
   import { svgToPng } from './lib/png'
   import { remember, remembered } from './lib/storage'
-  import { measure, timeTex, timeText } from './lib/timing'
+  import { measure, timeText } from './lib/timing'
 
   const layoutKey = 'quicktex-layout'
   const firstFormula = String.raw`\int_{-\infty}^{\infty} e^{-x^2}\,dx = \sqrt{\pi}`
@@ -112,15 +112,7 @@
       <h1 class="flex-1 text-[32px] leading-none font-normal">
         <Typeset text="quicktex" tex={String.raw`\textbf{quicktex}`} />
       </h1>
-      <p class="hidden text-sm text-quiet sm:block">
-        <Typeset
-          text={`Rendered in ${timeText(micros)}`}
-          tex={timeTex(micros)}
-        />
-      </p>
-      <p class="hidden text-sm text-quiet sm:block">
-        <Typeset text={`${weight} of SVG`} tex={`\\text{${weight}}`} />
-      </p>
+      <p class="hidden text-sm text-quiet sm:block"><Typeset text="A little space for your math." /></p>
       <ThemeToggle />
       <Button href="./editor/" icon={edit} label="Open editor" />
     </header>
@@ -128,10 +120,11 @@
     <div class="relative" bind:clientHeight={stageHeight}>
       <section
         class={[
-          'graph-paper absolute inset-x-0 top-0 flex overflow-auto rounded-control border border-rule-strong p-6',
+          'absolute inset-x-0 top-0 flex overflow-auto rounded-control border border-rule bg-sheet p-6',
           problem !== '' && 'text-stale',
         ]}
         aria-label="Rendered formula"
+        title={`Rendered in ${timeText(micros)} · ${weight} of SVG`}
         style:height="{sheetHeight + 2 * frame}px"
       >
         {#if empty}
@@ -143,7 +136,7 @@
     </div>
 
     <section class="pt-4 pb-6" style:translate="0 -{spare}px">
-      <div class="rounded-control border border-rule-strong bg-sheet focus-within:border-green">
+      <div class="rounded-control border border-rule bg-sheet transition-colors focus-within:border-green">
         <label class="sr-only" for="source">LaTeX source</label>
         <textarea
           id="source"
@@ -154,7 +147,7 @@
           autocomplete="off"
           bind:value={source}
         ></textarea>
-        <div class="flex flex-wrap items-center gap-2 border-t border-rule p-2">
+        <div class="flex flex-wrap items-center gap-2 border-t border-rule p-3">
           <Segmented
             class="max-sm:basis-full"
             legend="Layout"

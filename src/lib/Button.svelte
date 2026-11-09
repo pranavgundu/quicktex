@@ -40,18 +40,18 @@
     bare ? (tool ? 'w-8' : 'w-10') : tool ? 'px-2 text-sm' : 'px-4',
     primary
       ? [
-          'bg-action pb-1 text-on-action shadow-[inset_0_-4px_0_var(--color-action-edge)]',
-          'hover:bg-action-hover active:pt-1 active:pb-0 active:shadow-none',
+          'bg-action font-medium text-on-action',
+          'hover:bg-action-hover active:bg-action-edge',
           'disabled:bg-rule disabled:text-quiet disabled:shadow-none',
         ]
       : tool
         ? 'text-ink hover:bg-rule active:bg-rule-strong disabled:text-stale'
         : [
-            'border border-rule-strong bg-sheet text-ink',
-            'hover:border-ink hover:bg-paper active:bg-rule',
+            'border border-rule bg-sheet text-ink',
+            'hover:border-rule-strong hover:bg-paper active:bg-rule',
             'disabled:border-rule disabled:bg-transparent disabled:text-stale',
           ],
-    'disabled:cursor-not-allowed',
+    'transition-colors duration-150 disabled:cursor-not-allowed',
     extra,
   ])
 </script>
