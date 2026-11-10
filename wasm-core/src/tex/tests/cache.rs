@@ -2,6 +2,21 @@ use super::*;
 use crate::tex::*;
 
 #[test]
+fn standalone_formulas_do_not_inherit_document_point_sizes() {
+    let formula = r"\int_{-\infty}^{\infty}e^{-x^2}\,dx=\sqrt{\pi}";
+    let mut engine = Engine::new();
+    for pt in [11, 12, 10] {
+        for display in [false, true] {
+            let source = format!(r"\documentclass[{pt}pt]{{article}}\begin{{document}}Text\end{{document}}");
+            let len = feed(&mut engine, &source);
+            assert!(engine.render_document(len) > 0);
+            let expected = render_with(&mut Engine::new(), formula, display).unwrap();
+            assert_eq!(render_with(&mut engine, formula, display).unwrap(), expected, "{pt}pt, display={display}");
+        }
+    }
+}
+
+#[test]
 fn cached_ascii_metrics_match_uncached_font_metrics_for_every_key() {
     let mut engine = Engine::new();
     assert_eq!(engine.text_metric(0, 0, 0).map(|metric| metric.glyph), glyph_id(0, 0));

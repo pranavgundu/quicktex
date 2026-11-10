@@ -773,6 +773,8 @@ impl Engine {
 
     pub fn render(&mut self, len: usize, display: bool) -> i32 {
         self.reset(len);
+        // Standalone math uses 10pt metrics regardless of the last document.
+        self.doc.pt = 10;
         let style = if display { ST_D } else { ST_T };
         let ctx = Ctx { style, font: 0, size: UNIT, scale: UNIT, color: 0, grp: 0 };
         match self.list(ctx, S_EOF, NONE) {

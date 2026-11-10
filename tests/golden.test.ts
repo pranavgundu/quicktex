@@ -18,13 +18,18 @@ function compare(name: string, value: string | Uint8Array) {
 }
 
 describe('golden output', () => {
-  test('every formula matches its recorded output', () => {
+  test('the formula corpus has broad coverage', () => {
     expect(corpus.length).toBeGreaterThan(200)
-    for (const tex of corpus) {
-      compare(`inline ${tex}`, render(tex, false))
-      compare(`display ${tex}`, render(tex, true))
-    }
   })
+
+  // Keep failures independent so one mismatch cannot skip the remaining hashes
+  // and cause a misleading failure in the stale-output check.
+  for (const tex of corpus) {
+    for (const display of [false, true]) {
+      const name = `${display ? 'display' : 'inline'} ${tex}`
+      test(name, () => compare(name, render(tex, display)))
+    }
+  }
 
   for (const name of ['lab', 'shapes', 'sample']) {
     test(`${name} pages match`, () => {

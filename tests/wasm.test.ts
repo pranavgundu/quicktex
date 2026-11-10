@@ -47,6 +47,18 @@ describe('render', () => {
     expect(render('\\frac{a}{b}')).toBe(render('\\frac{a}{b}'))
   })
 
+  test('standalone math does not inherit the last document point size', () => {
+    const formula = String.raw`\int_{-\infty}^{\infty}e^{-x^2}\,dx=\sqrt{\pi}`
+    renderDocument(article('Text'))
+    const expected = [render(formula, false), render(formula, true)]
+    for (const pt of [11, 12, 10]) {
+      for (const display of [false, true]) {
+        renderDocument(`\\documentclass[${pt}pt]{article}\\begin{document}Text\\end{document}`)
+        expect(render(formula, display)).toBe(expected[Number(display)])
+      }
+    }
+  })
+
   test('survives memory growth between calls', () => {
     const before = render('x')
     render('x+'.repeat(500000) + 'y')
