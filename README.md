@@ -39,7 +39,7 @@ render(String.raw`\dv{f}{x}`)
 
 ## Full editor
 
-`/editor/` is a local-first workspace for whole documents, with the same green palette, serif controls and instant preview as the formula page. Write on the left, read the pages on the right, and download a PDF or the current source file. The root document is `main.tex`. Source is saved in local storage; supporting files and binary assets are saved asynchronously in IndexedDB. There is no account, cloud sync or collaboration; download backups of important work.
+`/editor/` is a local-first workspace for whole documents, with the same green palette, serif controls and instant preview as the formula page. Write on the left, read the pages on the right, and download a PDF or the current source file. The root document is `main.tex`. Source is saved in local storage; supporting files and binary assets are saved asynchronously in IndexedDB. There is no account or cloud storage. Temporary peer-to-peer collaboration is available through **Share**; download backups of important work.
 
 - **Project sidebar:** import files, create text files (including folder paths), filter, rename and delete. Open TeX/BibTeX files in tabs with independent undo histories and selections. Clicking an imported PNG/JPEG inserts its `\\includegraphics` command.
 - **Outline:** sections in the current file update after a short idle delay and jump directly to source.
@@ -108,6 +108,24 @@ for measured speedups and correctness checks.
 
 `setFiles(files)` replaces the virtual project filesystem for subsequent compiles. Missing or unsupported image files produce warnings and a placeholder. Supported raster formats are 8-bit, non-interlaced PNG (gray, RGB, palette, and alpha) and 8-bit RGB JPEG. Other formats, including PDF figures, are not implemented. `await registerFont(bytes)` adds an OpenType fallback font. The optional bundled fonts are loaded lazily from the same origin; no external font service is used.
 
+### Temporary collaboration (no backend bill)
+
+1. Open `/editor/`, then **Share → Start temporary session**.
+2. Send the private editing link to your collaborators and keep your tab open.
+3. Everyone with the link can edit text files, see live selections/cursors, and import, create, rename, or delete project files. Undo only reverses that person's editor changes. Rename keeps the underlying text identity; concurrent duplicate file paths receive `-conflict` suffixes so neither file is silently hidden.
+4. Use **Download project** to save all text files and assets as a ZIP, or download the PDF. To reopen a ZIP backup, unzip it and import its files with **Add files**.
+5. **Leave** reopens your previous local workspace. Joining a session never imports your private local draft into it.
+
+Sessions are held **in browser memory only**. There is no Firebase, cloud document database, server-side compilation, or local session autosave. The previous personal workspace remains on disk, unchanged by session edits. At least one participant must keep the session open; if everyone leaves, there is no stored copy to reconnect to. Reloading may lose edits that have not reached another participant. Treat the editing link as a secret: there are no accounts, viewer roles, individual access revocation, or version backups, and participants can download what they receive.
+
+Yjs merges concurrent text edits; `y-codemirror.next` supplies editor bindings and presence. `y-webrtc` discovers peers through its public `wss://y-webrtc-eu.fly.dev` signaling endpoint. Signaling is password-encrypted and document traffic uses encrypted WebRTC data channels; the signaling service still sees connection metadata. A public Google STUN service helps discover network addresses. No paid TURN relay is configured, so some school, corporate, mobile, or restrictive NAT networks cannot connect. Public discovery is best-effort and may be unavailable; it is not a production availability guarantee.
+
+**Manual fallback:** If automatic connection stalls, open **Share → Not connecting?** on both sides. Both participants must already have the same editing link open. One creates an invitation code, the other pastes it and creates a reply, and the inviter pastes the reply and connects. Exchange codes through a trusted channel; they contain network connection details. This establishes a direct WebRTC connection without a signaling server. Repeat for additional collaborators (a small star-shaped group works well). It does not bypass networks requiring TURN. Automatic discovery is optional for this fallback, but STUN still uses a free third-party service.
+
+Designed for small trusted groups, with up to 12 direct connections per peer and an 8 MB project/import size check. This is not a hardened public multi-tenant service: do not publish editing links to untrusted audiences. Each participant compiles locally; no rendered pages or PDFs are uploaded. There are no billing credentials or hosted resources to provision. The static app can still deploy to GitHub Pages as before.
+
+Collaboration tests cover seeded randomized multi-peer convergence, offline inserts/deletes, duplicate and reordered updates, root identity, unsafe paths, UTF-8 size boundaries, conflicting creates/renames/deletes, undo scope replacement, malformed manual codes and frames, transfer chunking/backpressure, star forwarding, pending-connection cleanup, peer-to-peer editing across isolated browser contexts, per-user undo, late joins and reloads, creator departure, room isolation, ZIP byte integrity, preservation/restoration of private drafts, and manual connection when signaling is unavailable. Browser tests use an in-memory signaling fixture rather than depending on the public service.
+
 ### Writing
 
 The editor completes commands, environments, drawing options, colors, package names and your own `\newcommand` names as you type, with a live preview of math. Enter closes an environment and continues a list, Cmd or Ctrl with B or I toggles bold or italic, brackets and `$` pair up, sections and environments fold, and the outline jumps to any heading.
@@ -119,6 +137,8 @@ bun run test:rust
 bun run wasm
 bun run build
 bun run test
+# Build and run the focused collaboration suite (no public signaling dependency):
+bun run test:collab
 ```
 
 `test:rust` runs the engine tests natively. `test` runs the real wasm binary, every editor suggestion through the engine, recorded output hashes, speed budgets, and the production build in Chrome. After an intended output change, rerun with `UPDATE_GOLDEN=1 bun test tests/golden.test.ts` and review the diff.

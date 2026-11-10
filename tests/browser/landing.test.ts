@@ -142,18 +142,19 @@ describe('formula page', () => {
 })
 
 describe('render time', () => {
-  const time = () => s.page.locator('.sr-only', { hasText: 'Rendered in' })
+  // Timing moved from the header to the preview tooltip in the calmer UI.
+  const time = async () => (await s.page.getByRole('region', { name: 'Rendered formula' }).getAttribute('title'))?.split(' · ')[0] ?? ''
 
   test('reads as an exact time in microseconds or milliseconds', async () => {
     await input().fill('x^2')
     await s.page.waitForTimeout(300)
-    expect(await time().textContent()).toMatch(/^Rendered in [\d.]+ (µs|ms)$/)
+    expect(await time()).toMatch(/^Rendered in [\d.]+ (µs|ms)$/)
   })
 
   test('a tiny formula is timed below the resolution of the browser clock', async () => {
     await input().fill('x')
     await s.page.waitForTimeout(300)
-    const text = (await time().textContent()) ?? ''
+    const text = await time()
     expect(text).toMatch(/µs$/)
     expect(Number(text.match(/[\d.]+/)?.[0])).toBeGreaterThan(0)
   })

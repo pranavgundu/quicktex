@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p tsconfig.test.json",
     "test": "bun test --timeout 120000 tests",
+    "test:collab": "bun run build && bun test --timeout 120000 tests/collaboration.test.ts tests/collaboration-model.test.ts tests/manual-peer.test.ts tests/browser/collaboration.test.ts tests/browser/collaboration-lifecycle.test.ts",
     "test:rust": "sh wasm-core/test.sh",
     "bench": "bun bench/run.ts",
     "test:parity": "bun bench/parity.ts"
@@ -37,6 +38,11 @@
     "@codemirror/search": "^6.7.2",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
-    "@lezer/highlight": "^1.2.5"
+    "@lezer/highlight": "^1.2.5",
+    "fflate": "^0.8.3",
+    "y-codemirror.next": "^0.3.6",
+    "y-protocols": "^1.0.7",
+    "y-webrtc": "^10.3.0",
+    "yjs": "^13.6.33"
   }
 }

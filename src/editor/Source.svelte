@@ -1,5 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte'
+  import { yCollab, yUndoManagerKeymap } from 'y-codemirror.next'
+  import type { SharedEditor } from './collaboration'
   import { defaultKeymap, history, historyKeymap, indentWithTab, undo, redo, toggleLineComment, indentSelection } from '@codemirror/commands'
   import {
     bracketMatching,
@@ -49,6 +51,7 @@
     oncursor,
     ondoc,
     documentId = 'main.tex',
+    shared,
     fontSize = 14,
     wrap = true,
     numbers = true,
@@ -59,6 +62,7 @@
     oncursor?: (at: number, line: number, column: number) => void
     ondoc?: (text: string) => void
     documentId?: string
+    shared?: SharedEditor
     fontSize?: number
     wrap?: boolean
     numbers?: boolean
@@ -219,12 +223,14 @@
     const editor = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: untrack(() => value),
+        doc: untrack(() => shared?.text.toString() ?? value),
         extensions: configuration = [
           appearance.of(untrack(() => appearanceFor(fontSize, wrap, numbers))),
           highlightActiveLine(),
           highlightActiveLineGutter(),
-          history(),
+          ...untrack(() => shared
+            ? [yCollab(shared.text, shared.awareness, { undoManager: shared.undoManager }), Prec.highest(keymap.of(yUndoManagerKeymap))]
+            : [history()]),
           drawSelection(),
           dropCursor(),
           rectangularSelection(),
@@ -316,7 +322,7 @@
   $effect(() => {
     const text = value
     const id = documentId
-    if (!view) return
+    if (!view || shared) return
     syncing = true
     if (currentId !== id) {
       documents.set(currentId, view.state)
@@ -365,7 +371,8 @@
       undo, redo, bold, italic, comment: toggleLineComment, indent: indentSelection,
       search: openSearchPanel, goto: gotoLine,
     }
-    commands[command]?.(view)
+    if (shared && (command === 'undo' || command === 'redo')) shared.undoManager[command]()
+    else commands[command]?.(view)
     if (command !== 'search' && command !== 'goto') view.focus()
   }
 
