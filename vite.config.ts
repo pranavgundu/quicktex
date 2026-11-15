@@ -13,7 +13,6 @@ export default defineConfig({
     rolldownOptions: {
       input: {
         main: page('index.html'),
-        editor: page('editor/index.html'),
       },
     },
   },

@@ -124,11 +124,6 @@ describe('formula page', () => {
     await dark.context.close()
   })
 
-  test('links to the full editor', async () => {
-    await s.page.locator('a[href*="editor"]').first().click()
-    await s.page.waitForSelector('article svg')
-    expect(s.page.url()).toContain('/editor/')
-  })
 
   test('does not scroll sideways on a phone', async () => {
     await s.page.setViewportSize({ width: 390, height: 780 })

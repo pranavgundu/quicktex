@@ -4,7 +4,7 @@
   import Segmented from './lib/Segmented.svelte'
   import ThemeToggle from './lib/ThemeToggle.svelte'
   import Typeset from './lib/Typeset.svelte'
-  import { check, code, edit, image } from './lib/icons'
+  import { check, code, image } from './lib/icons'
   import { charIndex } from './lib/latex'
   import { svgToPng } from './lib/png'
   import { remember, remembered } from './lib/storage'
@@ -122,7 +122,6 @@
         <Typeset text={`${weight} of SVG`} tex={`\\text{${weight}}`} />
       </p>
       <ThemeToggle />
-      <Button href="./editor/" icon={edit} label="Open editor" />
     </header>
 
     <div class="relative" bind:clientHeight={stageHeight}>
